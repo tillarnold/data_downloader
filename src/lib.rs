@@ -57,7 +57,7 @@
 //!
 //! The [`get`], [`get_cached`] and [`get_path`] function use a default
 //! directory to cache the downloads, this allows multiple application to share
-//! their cached downloads. If you need more configuarbility you can use
+//! their cached downloads. If you need more configurability you can use
 //! [`Downloader`] and set the storage directory manually using
 //! [`Downloader::new_with_dir`]. The default storage directory is a platform
 //! specific cache directory or a platform specific temporary directory if the
@@ -71,8 +71,9 @@
 //! When manually changing a [`DownloadRequest`], inherently the SHA-256 sum
 //! needs to be changed too. If this is not done this can result in a
 //! [`DownloadRequest`] that looks as if it is downloading a specific file but
-//! instead downloads something else. For example here the above
-//! [`DownloadRequest`] was changed but only he `url` was addapted. Since
+//! the download will never succeed because of the checksum mismatch, however
+//! the wrong file can be loaded from cache. For example here the above
+//! [`DownloadRequest`] was changed but only the `url` was adapted. Since
 //! neither the `name` nor `sha256_hash` are set to the correct value this will
 //! return `rfc2068.txt` from the cache. This is a user error, as the developer
 //! has to ensure that they specify the correct SHA-256 checksum for a
@@ -94,13 +95,13 @@
 //! point. There are also some implementation limitations including but not
 //! limited to:
 //! - The downloading is rather primitive. Failed downloads are simply retried
-//!   once and no continuation of interupted downloads is implemented.
+//!   once and no continuation of interrupted downloads is implemented.
 //! - The default timeouts of `reqwest` are used. As such large downloads on
 //!   slow connections can fail.
 //! - Only one URL is used per [`DownloadRequest`], it's not currently possible
 //!   to specify multiple possible locations for a file.
 //! - Only single files are supported, no unpacking of zips is supported.
-//! - The crate uses blocking IO.
+//! - The crate uses blocking IO. As such there is no currently no WASM support.
 //!
 //! Contributions to improve this are welcome.
 //!
@@ -112,24 +113,24 @@
 //!     - Implementing this manually would only cause incompatibilities
 //! - `reqwest` to issue HTTP requests
 //!     - A HTTP library is definitely required to allow this crate to download
-//!       files. `reqwest` is widely used in the Rust comunity, it is however a
+//!       files. `reqwest` is widely used in the Rust community, it is however a
 //!       rather big dependency as it is very fully featured. It might be worth
 //!       investigating smaller HTTP client libraries in the future.
 //! - `sha2` to hash files
 //!     - To ensure the integrity of the files a collision resistant
 //!       cryptographic hash function is required. SHA-256 is generally
 //!       considered as the standard for such a use case. The `sha2` crate by
-//!       the `RustCrypto` organisation is the defacto standard implementation
+//!       the `RustCrypto` organization is the defacto standard implementation
 //!       of SHA-2 for Rust.
 //! - `hex-literal` to conveniently specify the SHA-256 sums
-//!     - Technially this dependency could be removed if we specified the
-//!       SHA-256 in the predefined [`DownloadRequest`] directley as `&[u8]`
-//!       slice litterals. However the library is maintained by the `RustCrypto`
-//!       organisation and as such can be regarded as trustworthy
+//!     - Technically this dependency could be removed if we specified the
+//!       SHA-256 in the predefined [`DownloadRequest`] directly as `&[u8]`
+//!       slice literals. However the library is maintained by the `RustCrypto`
+//!       organization and as such can be regarded as trustworthy
 //! - `thiserror` to conveniently derive `Error`
-//!     - This library is also very wiedly used and maintained by David Tolnay ,
-//!       a highly regarded member of the Rust comunity. Once `data_downloader`
-//!       has sufficently matured it might be a good idea to stop using
+//!     - This library is also very widely used and maintained by David Tolnay ,
+//!       a highly regarded member of the Rust community. Once `data_downloader`
+//!       has sufficiently matured it might be a good idea to stop using
 //!       `thiserror` and instead directly use the generated implementations in
 //!       the code. This would potentially reduce build times. This has however
 //!       low priority, especially while the [`enum@crate::Error`] type is still
@@ -174,7 +175,7 @@ impl Downloader {
     /// The default storage directory is in the platform specific cache dir or
     /// if that is not available the temporary directory is used.
     ///
-    /// Note that no guaranees about the permissions of the default storage
+    /// Note that no guarantees about the permissions of the default storage
     /// directory are made. It is possible that this directory is accessible
     /// for other users on the system.
     pub fn new() -> io::Result<Self> {
@@ -182,7 +183,7 @@ impl Downloader {
         Ok(Self::new_with_dir(storage_dir))
     }
 
-    /// Create a [`Downloader`] that saves to a custom sotrage directory
+    /// Create a [`Downloader`] that saves to a custom storage directory
     /// you have to ensure the directory exists
     pub fn new_with_dir(storage_dir: PathBuf) -> Self {
         Self {
@@ -194,7 +195,7 @@ impl Downloader {
     /// Computes the full path to the file. This does not download the file.
     ///
     /// ## Security
-    /// The underlying file could have been changed at any point by a malicous
+    /// The underlying file could have been changed at any point by a malicious
     /// actor so there is no guarantee that if you pass this path that
     /// this will be the correct file.
     pub fn get_path(&self, r: &DownloadRequest) -> io::Result<PathBuf> {
@@ -290,7 +291,6 @@ pub fn get(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 ///
 /// This is equivalent to calling [`Downloader::get_cached`] on the default
 /// [`Downloader`]
-
 pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get_cached(r)
 }

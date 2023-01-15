@@ -1,0 +1,25 @@
+[package]
+name = "data_downloader"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "A simple way to download and cache files"
+documentation = "https://docs.rs/data_downloader"
+authors = ["Till Arnold"]
+keywords = ["download", "reference_data"]
+repository = "https://github.com/tillarnold/data_downloader"
+categories = ["filesystem", "caching", "network-programming"]
+exclude = [
+    "/rustfmt.toml",
+    "/.github/*"
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[dependencies]
+dirs = "4.0.0"
+hex-literal = "0.3.4"
+reqwest = { version ="0.11.13", features = ["blocking"]}
+sha2 = "0.10.6"
+thiserror = "1.0.38"

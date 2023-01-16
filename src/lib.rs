@@ -141,6 +141,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{fs, io};
 
+use reqwest::blocking::{Client, ClientBuilder};
 use thiserror::Error;
 use utils::{hex_str, sha256};
 
@@ -168,6 +169,7 @@ pub struct DownloadRequest<'a> {
 pub struct Downloader {
     storage_dir: PathBuf,
     retry_failed_download: bool,
+    client: Client,
 }
 
 impl Downloader {
@@ -178,18 +180,19 @@ impl Downloader {
     /// Note that no guarantees about the permissions of the default storage
     /// directory are made. It is possible that this directory is accessible
     /// for other users on the system.
-    pub fn new() -> io::Result<Self> {
+    pub fn new() -> Result<Self, Error> {
         let storage_dir = default_storage_dir()?;
-        Ok(Self::new_with_dir(storage_dir))
+        Ok(Self::new_with_dir(storage_dir)?)
     }
 
     /// Create a [`Downloader`] that saves to a custom storage directory
     /// you have to ensure the directory exists
-    pub fn new_with_dir(storage_dir: PathBuf) -> Self {
-        Self {
+    pub fn new_with_dir(storage_dir: PathBuf) -> Result<Self, reqwest::Error> {
+        Ok(Self {
             storage_dir,
             retry_failed_download: true,
-        }
+            client: ClientBuilder::new().timeout(None).build()?,
+        })
     }
 
     /// Computes the full path to the file. This does not download the file.
@@ -209,7 +212,7 @@ impl Downloader {
 
     /// Download the file even if it already exists.
     fn force_download(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-        let response = reqwest::blocking::get(r.url)?;
+        let response = self.client.get(r.url).send()?;
         let contents = response.bytes()?;
         let hash = sha256(&contents);
 
@@ -299,8 +302,8 @@ pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 ///
 /// This is equivalent to calling [`Downloader::get_path`] on the default
 /// [`Downloader`]
-pub fn get_path(r: &DownloadRequest) -> io::Result<PathBuf> {
-    Downloader::new()?.get_path(r)
+pub fn get_path(r: &DownloadRequest) -> Result<PathBuf, Error> {
+    Ok(Downloader::new()?.get_path(r)?)
 }
 
 fn default_storage_dir() -> io::Result<PathBuf> {

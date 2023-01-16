@@ -98,7 +98,11 @@ impl DownloaderBuilder {
 
         Ok(Downloader {
             storage_dir,
-            retry_failed_download: self.retry_failed_download,
+            retry_failed_download: if self.retry_failed_download {
+                Some(Duration::from_millis(500))
+            } else {
+                None
+            },
             client: self.client.build()?,
         })
     }

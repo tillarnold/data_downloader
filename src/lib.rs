@@ -137,7 +137,8 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::{fs, io};
+use std::time::Duration;
+use std::{fs, io, thread};
 
 use reqwest::blocking::Client;
 use thiserror::Error;
@@ -169,7 +170,9 @@ pub struct DownloadRequest<'a> {
 #[derive(Debug)]
 pub struct Downloader {
     storage_dir: PathBuf,
-    retry_failed_download: bool,
+    /// If Noen failed downloads will not be retried. If Some this amount of
+    /// time will be waited before a retry
+    retry_failed_download: Option<Duration>,
     client: Client,
 }
 
@@ -243,7 +246,10 @@ impl Downloader {
             match self.force_download(r) {
                 Ok(data) => return Ok(data),
                 Err(e) => {
-                    if self.retry_failed_download {
+                    if let Some(dur) = &self.retry_failed_download {
+                        if !dur.is_zero() {
+                            thread::sleep(*dur);
+                        }
                         return self.force_download(r);
                     }
                     return Err(e);
@@ -324,27 +330,13 @@ pub enum Error {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::files::images;
+    use crate::files::audio;
 
     #[test]
     fn download_test() {
-        let x = reqwest::blocking::get(images::TUX_SVG.url)
-            .unwrap()
-            .bytes()
-            .unwrap();
-        let x_str = std::str::from_utf8(&x).unwrap();
-
         let downloader = Downloader::new().unwrap();
+        downloader.force_download(audio::JFK_ASK_NOT_WAV).unwrap();
 
-        match downloader.force_download(images::TUX_SVG) {
-            Ok(_) => { /* ok */ }
-            Err(e) => {
-                let p = downloader.get_path(images::TUX_SVG).unwrap();
-
-                panic!("{e:?} {p:?} {x_str:?}");
-            }
-        }
-
-        get_cached(images::TUX_SVG).unwrap();
+        get_cached(audio::JFK_ASK_NOT_WAV).unwrap();
     }
 }

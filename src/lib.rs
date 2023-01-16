@@ -327,12 +327,10 @@ pub enum Error {
     },
 }
 
-
 // For testing the readme
 #[doc = include_str!("../README.md")]
 #[cfg(doctest)]
 pub struct ReadmeDoctests;
-
 
 #[cfg(test)]
 mod test {

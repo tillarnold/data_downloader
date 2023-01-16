@@ -328,16 +328,20 @@ mod test {
 
     #[test]
     fn download_test() {
+        let x = reqwest::blocking::get(images::TUX_SVG.url)
+            .unwrap()
+            .bytes()
+            .unwrap();
+        let x_str = std::str::from_utf8(&x).unwrap();
+
         let downloader = Downloader::new().unwrap();
 
         match downloader.force_download(images::TUX_SVG) {
             Ok(_) => { /* ok */ }
             Err(e) => {
                 let p = downloader.get_path(images::TUX_SVG).unwrap();
-                let mut dat = vec![];
-                let mut file = File::open(p).unwrap();
-                file.read_to_end(&mut dat).unwrap();
-                panic!("{e:?} {dat:?}");
+
+                panic!("{e:?} {p:?} {x_str:?}");
             }
         }
 

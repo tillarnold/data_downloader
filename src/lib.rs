@@ -330,7 +330,16 @@ mod test {
     fn download_test() {
         let downloader = Downloader::new().unwrap();
 
-        downloader.force_download(images::TUX_SVG).unwrap();
+        match downloader.force_download(images::TUX_SVG) {
+            Ok(_) => { /* ok */ }
+            Err(e) => {
+                let p = downloader.get_path(images::TUX_SVG).unwrap();
+                let mut dat = vec![];
+                let mut file = File::open(p).unwrap();
+                file.read_to_end(&mut dat).unwrap();
+                panic!("{e:?} {dat:?}");
+            }
+        }
 
         get_cached(images::TUX_SVG).unwrap();
     }

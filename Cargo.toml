@@ -13,6 +13,7 @@ exclude = [
     "/rustfmt.toml",
     "/.github/*"
 ]
+rust-version = "1.61.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -9,11 +9,5 @@ In particular this crate aims to make it easy to download and cache files
 that do not change over time, for example reference image files, ML models,
 example audio files or common password lists.
 
-
-## Roadmap
-- Test concurrency
-- Add an expected_size: Optional<u64> size to DownloadRequests
-    - If the download is bigger than that fail
-    - If it is None no upper limit
-
-
+## Alternatives
+If you need to download files that might change over time or where you do not know the SHA-256 in advance consider using [cached-path](https://crates.io/crates/cached-path).

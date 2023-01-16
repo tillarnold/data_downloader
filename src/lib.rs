@@ -58,10 +58,10 @@
 //! The [`get`], [`get_cached`] and [`get_path`] function use a default
 //! directory to cache the downloads, this allows multiple application to share
 //! their cached downloads. If you need more configurability you can use
-//! [`Downloader`] and set the storage directory manually using
-//! [`Downloader::new_with_dir`]. The default storage directory is a platform
-//! specific cache directory or a platform specific temporary directory if the
-//! cache directory is not available.
+//! [`DownloaderBuilder`] and set the storage directory manually using
+//! [`DownloaderBuilder::storage_dir`]. The default storage directory is a
+//! platform specific cache directory or a platform specific temporary directory
+//! if the cache directory is not available.
 //!
 //! # Included [`DownloadRequest`]s
 //! The [`files`] module contains some predefined [`DownloadRequest`] for your
@@ -96,8 +96,6 @@
 //! limited to:
 //! - The downloading is rather primitive. Failed downloads are simply retried
 //!   once and no continuation of interrupted downloads is implemented.
-//! - The default timeouts of `reqwest` are used. As such large downloads on
-//!   slow connections can fail.
 //! - Only one URL is used per [`DownloadRequest`], it's not currently possible
 //!   to specify multiple possible locations for a file.
 //! - Only single files are supported, no unpacking of zips is supported.
@@ -141,12 +139,15 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{fs, io};
 
-use reqwest::blocking::{Client, ClientBuilder};
+use reqwest::blocking::Client;
 use thiserror::Error;
 use utils::{hex_str, sha256};
 
+mod builder;
 pub mod files;
 mod utils;
+
+pub use builder::DownloaderBuilder;
 
 /// A file to be downloaded
 #[derive(Debug)]
@@ -181,18 +182,13 @@ impl Downloader {
     /// directory are made. It is possible that this directory is accessible
     /// for other users on the system.
     pub fn new() -> Result<Self, Error> {
-        let storage_dir = default_storage_dir()?;
-        Ok(Self::new_with_dir(storage_dir)?)
+        Self::builder().build()
     }
 
-    /// Create a [`Downloader`] that saves to a custom storage directory
-    /// you have to ensure the directory exists
-    pub fn new_with_dir(storage_dir: PathBuf) -> Result<Self, reqwest::Error> {
-        Ok(Self {
-            storage_dir,
-            retry_failed_download: true,
-            client: ClientBuilder::new().timeout(None).build()?,
-        })
+    /// Creates a [`DownloaderBuilder`] to configure a Client.
+    /// This is the same as [`DownloaderBuilder::new()`]
+    pub fn builder() -> DownloaderBuilder {
+        DownloaderBuilder::new()
     }
 
     /// Computes the full path to the file. This does not download the file.
@@ -304,15 +300,6 @@ pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 /// [`Downloader`]
 pub fn get_path(r: &DownloadRequest) -> Result<PathBuf, Error> {
     Ok(Downloader::new()?.get_path(r)?)
-}
-
-fn default_storage_dir() -> io::Result<PathBuf> {
-    const LIBRARY_DIR_NAME: &str = "data_downloader_default_storage_directory";
-
-    let mut cache_dir = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
-    cache_dir.push(LIBRARY_DIR_NAME);
-    fs::create_dir_all(&cache_dir)?;
-    Ok(cache_dir)
 }
 
 /// Error type for `data_downloader`

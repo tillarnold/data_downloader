@@ -24,11 +24,13 @@ jobs:
   fmt:
     name: Format and Docs
     runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+      RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt --all --check
-      - run: cargo doc --no-deps --document-private-items --all-features
-      - run: cargo clippy --verbose
+      - run: cargo install just
+      - run: just lint

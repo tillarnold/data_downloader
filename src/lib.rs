@@ -51,7 +51,7 @@
 //!
 //! One of the design goals of this crate is to verify the integrity of the
 //! downloaded files, as such the SHA-256 checksum of the downloads are checked.
-//! If a file is loaded from the cache on disk the SHA-256 checksum  is also
+//! If a file is loaded from the cache on disk the SHA-256 checksum is also
 //! verified. However for [`get_path`] the checksum is not verified because even
 //! if it was you would still be vulnerable to a [TOC/TOU vulnerability](https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use).
 //!

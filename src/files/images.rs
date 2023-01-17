@@ -76,9 +76,6 @@ mod test {
     fn download_test() {
         get(PEPPERS_TIFF).unwrap();
         get(MANDRILL_TIFF).unwrap();
-        get(TUX_SVG).unwrap();
-        get(TUX_PNG).unwrap();
-        get(TIGER_SVG).unwrap();
         get(RUST_LOGO_PNG).unwrap();
         get(RUST_LOGO_BLK_PNG).unwrap();
     }
@@ -86,15 +83,15 @@ mod test {
     #[test]
     fn download_test_2() {
         // Slightly flaky files that might need some more attempts and longer wait times
-        let fls = [TUX_SVG, TUX_PNG, TIGER_SVG];
 
         let dl = Downloader::builder()
             .retry_attempts(6)
-            .retry_wait_time(Duration::from_secs_f32(2.0))
+            .retry_wait_time(Duration::from_secs_f32(5.0))
             .build()
             .unwrap();
-        for f in fls {
-            dl.get(f).unwrap();
-        }
+
+        dl.get(TUX_SVG).unwrap();
+        dl.get(TUX_PNG).unwrap();
+        dl.get(TIGER_SVG).unwrap();
     }
 }

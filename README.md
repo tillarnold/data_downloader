@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(as_text.contains("protocol"));
 
 
-    /// There are also some handy built-in files 
+    // There are also some handy built-in files 
     let rockyou_txt = get(data_downloader::files::misc::ROCKYOU_TXT)?;
     let pws: HashSet<&[u8]> = rockyou_txt.split(|e| *e == b'\n').collect();
     assert!(pws.contains(&b"hello".as_slice()));

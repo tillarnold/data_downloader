@@ -30,5 +30,5 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all --check
-      - run: cargo doc --no-deps --document-private-items --all-features
+      - run: RUSTDOCFLAGS="-Dwarnings" cargo doc --no-deps --document-private-items --all-features
       - run: cargo clippy --verbose

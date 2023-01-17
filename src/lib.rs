@@ -98,7 +98,7 @@
 //!   once and no continuation of interrupted downloads is implemented.
 //! - The default timeouts of `reqwest` are used. As such large downloads on
 //!   slow connections can fail.
-//! - Only one URL is used per [`DownloadRequests`], it's not currently possible
+//! - Only one URL is used per [`DownloadRequest`], it's not currently possible
 //!   to specify multiple possible locations for a file.
 //! - Only single files are supported, no unpacking of zips is supported.
 //! - The crate uses blocking IO. As such there is no currently no WASM support.

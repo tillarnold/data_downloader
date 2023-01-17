@@ -31,9 +31,9 @@ use crate::{Downloader, Error};
 #[derive(Debug)]
 pub struct DownloaderBuilder {
     client: ClientBuilder,
-    retry_failed_download: usize,
+    retry_attempts: usize,
     storage_dir: Option<PathBuf>,
-    failed_download_wait_time: Duration,
+    retry_wait_time: Duration,
 }
 
 fn default_storage_dir() -> io::Result<PathBuf> {
@@ -52,9 +52,9 @@ impl DownloaderBuilder {
     pub fn new() -> Self {
         DownloaderBuilder {
             client: ClientBuilder::new().timeout(None),
-            retry_failed_download: 3,
+            retry_attempts: 4,
             storage_dir: None,
-            failed_download_wait_time: Duration::from_millis(500),
+            retry_wait_time: Duration::from_millis(500),
         }
     }
 
@@ -92,18 +92,23 @@ impl DownloaderBuilder {
     /// If set to zero only one request will be sent for each call to
     /// [`Downloader::get`]
     pub fn retry_attempts(mut self, retry: usize) -> Self {
-        self.retry_failed_download = retry;
+        self.retry_attempts = retry;
         self
     }
 
     /// Set how long the [`Downloader`] should wait between tries to download
     /// a file
     pub fn retry_wait_time(mut self, time: Duration) -> Self {
-        self.failed_download_wait_time = time;
+        self.retry_wait_time = time;
         self
     }
 
     /// Construct a [`Downloader`] from this builder
+    ///
+    /// # Errors
+    /// Fails if the [`ClientBuilder`] fails to build or in the case that no
+    /// [`Self::storage_dir`] was set and the default storage dir could not be
+    /// created or accessed
     pub fn build(self) -> Result<Downloader, Error> {
         let storage_dir = match self.storage_dir {
             Some(dir) => dir,
@@ -113,9 +118,15 @@ impl DownloaderBuilder {
         Ok(Downloader {
             storage_dir,
             client: self.client.build()?,
-            download_attempts: NonZeroUsize::new(self.retry_failed_download + 1)
+            download_attempts: NonZeroUsize::new(self.retry_attempts + 1)
                 .expect("Cannot fail because 1 + usize > 0"),
-            failed_download_wait_time: self.failed_download_wait_time,
+            failed_download_wait_time: self.retry_wait_time,
         })
+    }
+}
+
+impl Default for DownloaderBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }

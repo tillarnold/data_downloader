@@ -67,8 +67,10 @@ pub const RUST_LOGO_BLK_PNG: &DownloadRequest = &DownloadRequest {
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
+
     use super::*;
-    use crate::get;
+    use crate::{get, Downloader};
 
     #[test]
     fn download_test() {
@@ -79,5 +81,20 @@ mod test {
         get(TIGER_SVG).unwrap();
         get(RUST_LOGO_PNG).unwrap();
         get(RUST_LOGO_BLK_PNG).unwrap();
+    }
+
+    #[test]
+    fn download_test_2() {
+        // Slightly flaky files that might need some more attempts and longer wait times
+        let fls = [TUX_SVG, TUX_PNG, TIGER_SVG];
+
+        let dl = Downloader::builder()
+            .retry_attempts(6)
+            .retry_wait_time(Duration::from_secs_f32(2.0))
+            .build()
+            .unwrap();
+        for f in fls {
+            dl.get(f).unwrap();
+        }
     }
 }

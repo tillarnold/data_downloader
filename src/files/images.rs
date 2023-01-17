@@ -86,7 +86,7 @@ mod test {
 
         let dl = Downloader::builder()
             .retry_attempts(6)
-            .retry_wait_time(Duration::from_secs_f32(5.0))
+            .retry_wait_time(Duration::from_secs_f32(10.0))
             .build()
             .unwrap();
 

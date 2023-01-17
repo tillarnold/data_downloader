@@ -22,7 +22,7 @@ pub fn sha256(contents: &[u8]) -> [u8; 32] {
         .finalize()
         .as_slice()
         .try_into()
-        .expect("sha256 is 32 bytes");
+        .expect("SHA-256 is 32 bytes");
 
     hash
 }

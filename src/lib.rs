@@ -68,7 +68,7 @@
 //! convenience.
 //!
 //! # Pitfalls
-//! When manually changing a [`DownloadRequest`], inherently the SHA-256 sum
+//! When manually changing a [`DownloadRequests`], inherently the SHA-256 sum
 //! needs to be changed too. If this is not done this can result in a
 //! [`DownloadRequest`] that looks as if it is downloading a specific file but
 //! the download will never succeed because of the checksum mismatch, however

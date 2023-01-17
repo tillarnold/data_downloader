@@ -344,4 +344,8 @@ mod test {
 
         get_cached(images::TUX_SVG).unwrap();
     }
+
+    fn abc(x: i64, y: i64) {
+        if x >= y + 1 {}
+    }
 }

@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io};
@@ -16,7 +17,7 @@ use crate::{Downloader, Error};
 /// use reqwest::blocking::ClientBuilder;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let dl: Downloader = DownloaderBuilder::new()
-///     .retry_failed_download(false)
+///     .retry_attempts(7)
 ///     .client_builder(
 ///         ClientBuilder::new()
 ///             .user_agent("My custom User agent")
@@ -30,8 +31,9 @@ use crate::{Downloader, Error};
 #[derive(Debug)]
 pub struct DownloaderBuilder {
     client: ClientBuilder,
-    retry_failed_download: bool,
+    retry_failed_download: usize,
     storage_dir: Option<PathBuf>,
+    failed_download_wait_time: Duration,
 }
 
 fn default_storage_dir() -> io::Result<PathBuf> {
@@ -50,8 +52,9 @@ impl DownloaderBuilder {
     pub fn new() -> Self {
         DownloaderBuilder {
             client: ClientBuilder::new().timeout(None),
-            retry_failed_download: true,
+            retry_failed_download: 3,
             storage_dir: None,
+            failed_download_wait_time: Duration::from_millis(500),
         }
     }
 
@@ -83,9 +86,20 @@ impl DownloaderBuilder {
         self
     }
 
-    /// Configure wheter the [`Downloader`] should retry a download if it fails
-    pub fn retry_failed_download(mut self, retry: bool) -> Self {
+    /// Configure how oftent the [`Downloader`] should retry a download if it
+    /// fails
+    ///
+    /// If set to zero only one request will be sent for each call to
+    /// [`Downloader::get`]
+    pub fn retry_attempts(mut self, retry: usize) -> Self {
         self.retry_failed_download = retry;
+        self
+    }
+
+    /// Set how long the [`Downloader`] should wait between tries to download
+    /// a file
+    pub fn retry_wait_time(mut self, time: Duration) -> Self {
+        self.failed_download_wait_time = time;
         self
     }
 
@@ -98,12 +112,10 @@ impl DownloaderBuilder {
 
         Ok(Downloader {
             storage_dir,
-            retry_failed_download: if self.retry_failed_download {
-                Some(Duration::from_millis(500))
-            } else {
-                None
-            },
             client: self.client.build()?,
+            download_attempts: NonZeroUsize::new(self.retry_failed_download + 1)
+                .expect("Cannot fail because 1 + usize > 0"),
+            failed_download_wait_time: self.failed_download_wait_time,
         })
     }
 }

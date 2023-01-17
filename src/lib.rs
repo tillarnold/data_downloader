@@ -94,12 +94,15 @@
 //! This is an early release. As such breaking changes are expected at some
 //! point. There are also some implementation limitations including but not
 //! limited to:
-//! - The downloading is rather primitive. Failed downloads are simply retried
-//!   once and no continuation of interrupted downloads is implemented.
+//! - The downloading is rather primitive. Failed downloads are simply retried a
+//!   fixed number of times and no continuation of interrupted downloads is
+//!   implemented.
 //! - Only one URL is used per [`DownloadRequest`], it's not currently possible
 //!   to specify multiple possible locations for a file.
 //! - Only single files are supported, no unpacking of zips is supported.
 //! - The crate uses blocking IO. As such there is no currently no WASM support.
+//! - If a file on disk is corrupted or changed in another way it will not be
+//!   automatically redownloaded
 //!
 //! Contributions to improve this are welcome.
 //!
@@ -136,6 +139,7 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io, thread};
@@ -170,9 +174,12 @@ pub struct DownloadRequest<'a> {
 #[derive(Debug)]
 pub struct Downloader {
     storage_dir: PathBuf,
-    /// If Noen failed downloads will not be retried. If Some this amount of
-    /// time will be waited before a retry
-    retry_failed_download: Option<Duration>,
+    /// Total number of attempts made to download a file. This is NonZero as it
+    /// makes no sense to do 0 download attempts
+    download_attempts: NonZeroUsize,
+    /// How long to wait inbetween attempts do download a file
+    failed_download_wait_time: Duration,
+    /// The HTTP Client that's used for all requests
     client: Client,
 }
 
@@ -216,7 +223,7 @@ impl Downloader {
         let hash = sha256(&contents);
 
         if hash != r.sha256_hash {
-            return Err(Error::HashMissmatch {
+            return Err(Error::DownloadHashMismatch {
                 expected: hex_str(r.sha256_hash),
                 was: hex_str(&hash),
             });
@@ -242,22 +249,27 @@ impl Downloader {
     /// download it.
     pub fn get(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
         let target_path = self.get_path(r)?;
-        if !target_path.exists() {
+
+        for i in 0..self.download_attempts.get() {
+            // We recheck here in case somebody else has donwloaded it by now
+            if target_path.exists() {
+                return self.get_cached(r);
+            }
             match self.force_download(r) {
                 Ok(data) => return Ok(data),
                 Err(e) => {
-                    if let Some(dur) = &self.retry_failed_download {
-                        if !dur.is_zero() {
-                            thread::sleep(*dur);
-                        }
-                        return self.force_download(r);
+                    // This is the last loop iteration
+                    if i == self.download_attempts.get() - 1 {
+                        return Err(e);
                     }
-                    return Err(e);
+                    if !self.failed_download_wait_time.is_zero() {
+                        thread::sleep(self.failed_download_wait_time);
+                    }
                 }
             }
         }
 
-        self.get_cached(r)
+        unreachable!()
     }
 
     /// Get the file contents and *fail* with an IO error if the file is not yet
@@ -272,7 +284,7 @@ impl Downloader {
         let hash = sha256(&res);
 
         if hash != r.sha256_hash {
-            return Err(Error::HashMissmatch {
+            return Err(Error::OnDiskHashMismatch {
                 expected: hex_str(r.sha256_hash),
                 was: hex_str(&hash),
             });
@@ -317,9 +329,17 @@ pub enum Error {
     #[error("IO failed: {0}")]
     /// An io Error
     Io(#[from] io::Error),
-    /// The hash did not match
+    /// The hash of a downloaded file did not match
     #[error("Wrong hash! Expected {expected} got {was}")]
-    HashMissmatch {
+    DownloadHashMismatch {
+        /// The hash that was expected
+        expected: String,
+        /// The hash that the actual file had
+        was: String,
+    },
+    /// The hash of a file from the on disk cache did not match
+    #[error("Wrong hash on disk! Expected {expected} got {was}")]
+    OnDiskHashMismatch {
         /// The hash that was expected
         expected: String,
         /// The hash that the actual file had

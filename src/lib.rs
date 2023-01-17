@@ -335,13 +335,13 @@ pub struct ReadmeDoctests;
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::files::images;
+    use crate::files::audio;
 
     #[test]
     fn download_test() {
         let downloader = Downloader::new().unwrap();
-        downloader.force_download(images::TUX_SVG).unwrap();
+        downloader.force_download(audio::JFK_ASK_NOT_WAV).unwrap();
 
-        get_cached(images::TUX_SVG).unwrap();
+        get_cached(audio::JFK_ASK_NOT_WAV).unwrap();
     }
 }

@@ -51,17 +51,17 @@
 //!
 //! One of the design goals of this crate is to verify the integrity of the
 //! downloaded files, as such the SHA-256 checksum of the downloads are checked.
-//! If a file is loaded from the cache on disk the SHA-256 checksum  is also
+//! If a file is loaded from the cache on disk the SHA-256 checksum is also
 //! verified. However for [`get_path`] the checksum is not verified because even
 //! if it was you would still be vulnerable to a [TOC/TOU vulnerability](https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use).
 //!
 //! The [`get`], [`get_cached`] and [`get_path`] function use a default
 //! directory to cache the downloads, this allows multiple application to share
 //! their cached downloads. If you need more configurability you can use
-//! [`Downloader`] and set the storage directory manually using
-//! [`Downloader::new_with_dir`]. The default storage directory is a platform
-//! specific cache directory or a platform specific temporary directory if the
-//! cache directory is not available.
+//! [`DownloaderBuilder`] and set the storage directory manually using
+//! [`DownloaderBuilder::storage_dir`]. The default storage directory is a
+//! platform specific cache directory or a platform specific temporary directory
+//! if the cache directory is not available.
 //!
 //! # Included [`DownloadRequest`]s
 //! The [`files`] module contains some predefined [`DownloadRequest`] for your
@@ -94,14 +94,15 @@
 //! This is an early release. As such breaking changes are expected at some
 //! point. There are also some implementation limitations including but not
 //! limited to:
-//! - The downloading is rather primitive. Failed downloads are simply retried
-//!   once and no continuation of interrupted downloads is implemented.
-//! - The default timeouts of `reqwest` are used. As such large downloads on
-//!   slow connections can fail.
+//! - The downloading is rather primitive. Failed downloads are simply retried a
+//!   fixed number of times and no continuation of interrupted downloads is
+//!   implemented.
 //! - Only one URL is used per [`DownloadRequest`], it's not currently possible
 //!   to specify multiple possible locations for a file.
 //! - Only single files are supported, no unpacking of zips is supported.
 //! - The crate uses blocking IO. As such there is no currently no WASM support.
+//! - If a file on disk is corrupted or changed in another way it will not be
+//!   automatically redownloaded
 //!
 //! Contributions to improve this are welcome.
 //!
@@ -138,14 +139,20 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::{fs, io};
+use std::time::Duration;
+use std::{fs, io, thread};
 
+use reqwest::blocking::Client;
 use thiserror::Error;
 use utils::{hex_str, sha256};
 
+mod builder;
 pub mod files;
 mod utils;
+
+pub use builder::DownloaderBuilder;
 
 /// A file to be downloaded
 #[derive(Debug)]
@@ -167,7 +174,13 @@ pub struct DownloadRequest<'a> {
 #[derive(Debug)]
 pub struct Downloader {
     storage_dir: PathBuf,
-    retry_failed_download: bool,
+    /// Total number of attempts made to download a file. This is NonZero as it
+    /// makes no sense to do 0 download attempts
+    download_attempts: NonZeroUsize,
+    /// How long to wait inbetween attempts do download a file
+    failed_download_wait_time: Duration,
+    /// The HTTP Client that's used for all requests
+    client: Client,
 }
 
 impl Downloader {
@@ -178,18 +191,14 @@ impl Downloader {
     /// Note that no guarantees about the permissions of the default storage
     /// directory are made. It is possible that this directory is accessible
     /// for other users on the system.
-    pub fn new() -> io::Result<Self> {
-        let storage_dir = default_storage_dir()?;
-        Ok(Self::new_with_dir(storage_dir))
+    pub fn new() -> Result<Self, Error> {
+        Self::builder().build()
     }
 
-    /// Create a [`Downloader`] that saves to a custom storage directory
-    /// you have to ensure the directory exists
-    pub fn new_with_dir(storage_dir: PathBuf) -> Self {
-        Self {
-            storage_dir,
-            retry_failed_download: true,
-        }
+    /// Creates a [`DownloaderBuilder`] to configure a Client.
+    /// This is the same as [`DownloaderBuilder::new()`]
+    pub fn builder() -> DownloaderBuilder {
+        DownloaderBuilder::new()
     }
 
     /// Computes the full path to the file. This does not download the file.
@@ -209,12 +218,12 @@ impl Downloader {
 
     /// Download the file even if it already exists.
     fn force_download(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-        let response = reqwest::blocking::get(r.url)?;
+        let response = self.client.get(r.url).send()?;
         let contents = response.bytes()?;
         let hash = sha256(&contents);
 
         if hash != r.sha256_hash {
-            return Err(Error::HashMissmatch {
+            return Err(Error::DownloadHashMismatch {
                 expected: hex_str(r.sha256_hash),
                 was: hex_str(&hash),
             });
@@ -240,19 +249,27 @@ impl Downloader {
     /// download it.
     pub fn get(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
         let target_path = self.get_path(r)?;
-        if !target_path.exists() {
+
+        for i in 0..self.download_attempts.get() {
+            // We recheck here in case somebody else has donwloaded it by now
+            if target_path.exists() {
+                return self.get_cached(r);
+            }
             match self.force_download(r) {
                 Ok(data) => return Ok(data),
                 Err(e) => {
-                    if self.retry_failed_download {
-                        return self.force_download(r);
+                    // This is the last loop iteration
+                    if i == self.download_attempts.get() - 1 {
+                        return Err(e);
                     }
-                    return Err(e);
+                    if !self.failed_download_wait_time.is_zero() {
+                        thread::sleep(self.failed_download_wait_time);
+                    }
                 }
             }
         }
 
-        self.get_cached(r)
+        unreachable!()
     }
 
     /// Get the file contents and *fail* with an IO error if the file is not yet
@@ -267,7 +284,7 @@ impl Downloader {
         let hash = sha256(&res);
 
         if hash != r.sha256_hash {
-            return Err(Error::HashMissmatch {
+            return Err(Error::OnDiskHashMismatch {
                 expected: hex_str(r.sha256_hash),
                 was: hex_str(&hash),
             });
@@ -299,17 +316,8 @@ pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 ///
 /// This is equivalent to calling [`Downloader::get_path`] on the default
 /// [`Downloader`]
-pub fn get_path(r: &DownloadRequest) -> io::Result<PathBuf> {
-    Downloader::new()?.get_path(r)
-}
-
-fn default_storage_dir() -> io::Result<PathBuf> {
-    const LIBRARY_DIR_NAME: &str = "data_downloader_default_storage_directory";
-
-    let mut cache_dir = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
-    cache_dir.push(LIBRARY_DIR_NAME);
-    fs::create_dir_all(&cache_dir)?;
-    Ok(cache_dir)
+pub fn get_path(r: &DownloadRequest) -> Result<PathBuf, Error> {
+    Ok(Downloader::new()?.get_path(r)?)
 }
 
 /// Error type for `data_downloader`
@@ -321,9 +329,17 @@ pub enum Error {
     #[error("IO failed: {0}")]
     /// An io Error
     Io(#[from] io::Error),
-    /// The hash did not match
+    /// The hash of a downloaded file did not match
     #[error("Wrong hash! Expected {expected} got {was}")]
-    HashMissmatch {
+    DownloadHashMismatch {
+        /// The hash that was expected
+        expected: String,
+        /// The hash that the actual file had
+        was: String,
+    },
+    /// The hash of a file from the on disk cache did not match
+    #[error("Wrong hash on disk! Expected {expected} got {was}")]
+    OnDiskHashMismatch {
         /// The hash that was expected
         expected: String,
         /// The hash that the actual file had
@@ -331,17 +347,21 @@ pub enum Error {
     },
 }
 
+// For testing the readme
+#[doc = include_str!("../README.md")]
+#[cfg(doctest)]
+pub struct ReadmeDoctests;
+
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::files::images;
+    use crate::files::audio;
 
     #[test]
     fn download_test() {
         let downloader = Downloader::new().unwrap();
+        downloader.force_download(audio::JFK_ASK_NOT_WAV).unwrap();
 
-        downloader.force_download(images::TUX_SVG).unwrap();
-
-        get_cached(images::TUX_SVG).unwrap();
+        get_cached(audio::JFK_ASK_NOT_WAV).unwrap();
     }
 }

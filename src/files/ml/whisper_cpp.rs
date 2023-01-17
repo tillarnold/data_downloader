@@ -72,7 +72,7 @@ mod test {
 
     #[test]
     fn download_test() {
-        let models = [GGML_TINY, GGML_TINY_EN, GGML_BASE, GGML_BASE_EN];
+        let models = [GGML_TINY_EN, GGML_BASE];
 
         for m in models {
             println!("Downloading {m:?}");

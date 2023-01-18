@@ -37,13 +37,22 @@ pub struct DownloaderBuilder {
 }
 
 fn default_storage_dir() -> io::Result<PathBuf> {
-    const LIBRARY_DIR_NAME: &str = "data_downloader_default_storage_directory";
+    const DEFAULT_DIR_NAME: &str = "data_downloader_default_storage_directory";
 
     let mut cache_dir = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
-    cache_dir.push(LIBRARY_DIR_NAME);
+    cache_dir.push(DEFAULT_DIR_NAME);
     fs::create_dir_all(&cache_dir)?;
     Ok(cache_dir)
 }
+
+const DEFAULT_USER_AGENT: &str = concat!(
+    env!("CARGO_PKG_NAME"),
+    "/",
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("CARGO_PKG_REPOSITORY"),
+    ") reqwest",
+);
 
 impl DownloaderBuilder {
     /// Create a new builder
@@ -51,7 +60,9 @@ impl DownloaderBuilder {
     /// This is the same as calling [`Downloader::builder()`]
     pub fn new() -> Self {
         DownloaderBuilder {
-            client: ClientBuilder::new().timeout(None),
+            client: ClientBuilder::new()
+                .timeout(None)
+                .user_agent(DEFAULT_USER_AGENT),
             retry_attempts: 4,
             storage_dir: None,
             retry_wait_time: Duration::from_millis(500),

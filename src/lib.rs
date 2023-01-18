@@ -46,8 +46,7 @@
 //! ```
 //!
 //!
-//! [`get_path`] can be used to get a [`PathBuf`] to the file. Note that
-//! [`get_path`] does not download the file so you have to call [`get`] first.
+//! [`get_path`] can be used to get a [`PathBuf`] to the file.
 //!
 //! One of the design goals of this crate is to verify the integrity of the
 //! downloaded files, as such the SHA-256 checksum of the downloads are checked.
@@ -99,10 +98,10 @@
 //!   implemented.
 //! - Only one URL is used per [`DownloadRequest`], it's not currently possible
 //!   to specify multiple possible locations for a file.
-//! - Only single files are supported, no unpacking of zips is supported.
+//! - Only single files are supported, no unpacking of archives is supported.
 //! - The crate uses blocking IO. As such there is no currently no WASM support.
 //! - If a file on disk is corrupted or changed in another way it will not be
-//!   automatically redownloaded
+//!   automatically redownloaded.
 //!
 //! Contributions to improve this are welcome.
 //!
@@ -137,22 +136,18 @@
 //!       low priority, especially while the [`enum@crate::Error`] type is still
 //!       changing frequently.
 
-use std::fs::File;
-use std::io::{Read, Write};
-use std::num::NonZeroU64;
+use std::io;
 use std::path::PathBuf;
-use std::time::Duration;
-use std::{fs, io, thread};
 
-use reqwest::blocking::Client;
 use thiserror::Error;
-use utils::{hex_str, sha256};
 
 mod builder;
+mod downloader;
 pub mod files;
 mod utils;
 
 pub use builder::DownloaderBuilder;
+pub use downloader::Downloader;
 
 /// A file to be downloaded
 #[derive(Debug)]
@@ -165,133 +160,6 @@ pub struct DownloadRequest<'a> {
     /// If two files with the same SHA-256 but different names are
     /// reqeuested this will result in two separate downloads
     pub name: &'a str,
-}
-
-/// Configurable Downloader
-///
-/// If you just want to use the default settings for the [`Downloader`] you can
-/// also use the free functions [`get`], [`get_cached`], [`get_path`] instead.
-#[derive(Debug)]
-pub struct Downloader {
-    storage_dir: PathBuf,
-    /// Total number of attempts made to download a file. This is NonZero as it
-    /// makes no sense to do 0 download attempts
-    download_attempts: NonZeroU64,
-    /// How long to wait inbetween attempts do download a file
-    failed_download_wait_time: Duration,
-    /// The HTTP Client that's used for all requests
-    client: Client,
-}
-
-impl Downloader {
-    /// Create a [`Downloader`] that saves to the default storage directory
-    /// The default storage directory is in the platform specific cache dir or
-    /// if that is not available the temporary directory is used.
-    ///
-    /// Note that no guarantees about the permissions of the default storage
-    /// directory are made. It is possible that this directory is accessible
-    /// for other users on the system.
-    pub fn new() -> Result<Self, Error> {
-        Self::builder().build()
-    }
-
-    /// Creates a [`DownloaderBuilder`] to configure a Client.
-    /// This is the same as [`DownloaderBuilder::new()`]
-    pub fn builder() -> DownloaderBuilder {
-        DownloaderBuilder::new()
-    }
-
-    /// Computes the full path to the file. This does not download the file.
-    ///
-    /// ## Security
-    /// The underlying file could have been changed at any point by a malicious
-    /// actor so there is no guarantee that if you pass this path that
-    /// this will be the correct file.
-    pub fn get_path(&self, r: &DownloadRequest) -> io::Result<PathBuf> {
-        let hash_string = hex_str(r.sha256_hash);
-        let file_name = format!("{hash_string}_{}", r.name);
-        let mut target_path = self.storage_dir.clone();
-        target_path.push(file_name);
-
-        Ok(target_path)
-    }
-
-    /// Download the file even if it already exists.
-    fn force_download(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-        let response = self.client.get(r.url).send()?;
-        let contents = response.bytes()?;
-        let hash = sha256(&contents);
-
-        if hash != r.sha256_hash {
-            return Err(Error::DownloadHashMismatch {
-                expected: hex_str(r.sha256_hash),
-                was: hex_str(&hash),
-            });
-        }
-
-        let target_path = self.get_path(r)?;
-
-        let (mut tmp_file, tmp_file_path) = utils::create_file_at(
-            target_path
-                .parent()
-                .expect("target path is a file in a dir"),
-            &format!("download_{}", r.name),
-        )?;
-
-        tmp_file.write_all(&contents)?;
-
-        fs::rename(tmp_file_path, target_path)?;
-
-        Ok(contents.to_vec())
-    }
-
-    /// Get the file contents and if the file has not yet been downloaded,
-    /// download it.
-    pub fn get(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-        let target_path = self.get_path(r)?;
-
-        for i in 0..self.download_attempts.get() {
-            // We recheck here in case somebody else has donwloaded it by now
-            if target_path.exists() {
-                return self.get_cached(r);
-            }
-            match self.force_download(r) {
-                Ok(data) => return Ok(data),
-                Err(e) => {
-                    // This is the last loop iteration
-                    if i == self.download_attempts.get() - 1 {
-                        return Err(e);
-                    }
-                    if !self.failed_download_wait_time.is_zero() {
-                        thread::sleep(self.failed_download_wait_time);
-                    }
-                }
-            }
-        }
-
-        unreachable!()
-    }
-
-    /// Get the file contents and *fail* with an IO error if the file is not yet
-    /// downloaded
-    pub fn get_cached(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-        let target_path = self.get_path(r)?;
-
-        let mut res = vec![];
-        let mut file = File::open(target_path)?;
-        file.read_to_end(&mut res)?;
-
-        let hash = sha256(&res);
-
-        if hash != r.sha256_hash {
-            return Err(Error::OnDiskHashMismatch {
-                expected: hex_str(r.sha256_hash),
-                was: hex_str(&hash),
-            });
-        }
-
-        Ok(res)
-    }
 }
 
 /// Get the file contents and if the file has not yet been downloaded, download
@@ -312,12 +180,13 @@ pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get_cached(r)
 }
 
-/// Computes the full path to the file. This does not download the file.
+/// Computes the full path to the file and if the file has not yet been
+/// downloaded, download it.
 ///
 /// This is equivalent to calling [`Downloader::get_path`] on the default
 /// [`Downloader`]
 pub fn get_path(r: &DownloadRequest) -> Result<PathBuf, Error> {
-    Ok(Downloader::new()?.get_path(r)?)
+    Downloader::new()?.get_path(r)
 }
 
 /// Error type for `data_downloader`
@@ -351,93 +220,3 @@ pub enum Error {
 #[doc = include_str!("../README.md")]
 #[cfg(doctest)]
 pub struct ReadmeDoctests;
-
-#[cfg(test)]
-mod test {
-    use proptest::prelude::*;
-
-    use super::*;
-    use crate::files::audio;
-
-    #[test]
-    fn download_test() {
-        let downloader = Downloader::new().unwrap();
-        downloader.force_download(audio::JFK_ASK_NOT_WAV).unwrap();
-
-        get_cached(audio::JFK_ASK_NOT_WAV).unwrap();
-    }
-
-    proptest! {
-            #[test]
-            fn get_doesnt_crash(name: String, sha256_hash: Vec<u8>, url: String) {
-                let dr: &DownloadRequest = &DownloadRequest {
-                        name: &name,
-                        sha256_hash: &sha256_hash,
-                        url: &url,
-                    };
-
-                let dl = DownloaderBuilder::new().retry_attempts(0).build().unwrap();
-                let _error_ignored = dl.get(dr);
-            }
-
-            #[test]
-            fn get_cached_doesnt_crash(name: String, sha256_hash: Vec<u8>, url: String) {
-                let dr: &DownloadRequest = &DownloadRequest {
-                        name: &name,
-                        sha256_hash: &sha256_hash,
-                        url: &url,
-                    };
-
-                let dl = DownloaderBuilder::new().retry_attempts(0).build().unwrap();
-                let _error_ignored = dl.get_cached(dr);
-            }
-
-            #[test]
-            fn get_path_doesnt_crash(name: String, sha256_hash: Vec<u8>, url: String) {
-                let dr: &DownloadRequest = &DownloadRequest {
-                        name: &name,
-                        sha256_hash: &sha256_hash,
-                        url: &url,
-                    };
-
-                let dl = DownloaderBuilder::new().retry_attempts(0).build().unwrap();
-                let _error_ignored = dl.get_path(dr);
-            }
-
-
-        fn get_doesnt_crash_with_retry(name: String, sha256_hash: Vec<u8>, url: String) {
-            let dr: &DownloadRequest = &DownloadRequest {
-                    name: &name,
-                    sha256_hash: &sha256_hash,
-                    url: &url,
-                };
-
-                let dl = DownloaderBuilder::new().retry_attempts(2).retry_wait_time(Duration::ZERO).build().unwrap();
-                let _error_ignored = dl.get(dr);
-        }
-
-        #[test]
-        fn get_cached_doesnt_crash_with_retry(name: String, sha256_hash: Vec<u8>, url: String) {
-            let dr: &DownloadRequest = &DownloadRequest {
-                    name: &name,
-                    sha256_hash: &sha256_hash,
-                    url: &url,
-                };
-
-                let dl = DownloaderBuilder::new().retry_attempts(2).retry_wait_time(Duration::ZERO).build().unwrap();
-                let _error_ignored = dl.get_cached(dr);
-        }
-
-        #[test]
-        fn get_path_doesnt_crash_with_retry(name: String, sha256_hash: Vec<u8>, url: String) {
-            let dr: &DownloadRequest = &DownloadRequest {
-                    name: &name,
-                    sha256_hash: &sha256_hash,
-                    url: &url,
-                };
-
-                let dl = DownloaderBuilder::new().retry_attempts(2).retry_wait_time(Duration::ZERO).build().unwrap();
-                let _error_ignored = dl.get_path(dr);
-        }
-    }
-}

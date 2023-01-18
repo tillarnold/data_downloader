@@ -148,10 +148,19 @@ mod test {
 
     use super::*;
 
-    proptest! {
+    proptest!(
         #[test]
-        fn builder_doesnt_crash(retry_wait_time: Duration, retry_attempts: u32, timeout: Option<Duration>) {
-            DownloaderBuilder::new().retry_wait_time(retry_wait_time).retry_attempts(retry_attempts).timeout(timeout).build().unwrap();
+        fn builder_doesnt_crash(
+            retry_wait_time: Duration,
+            retry_attempts: u32,
+            timeout: Option<Duration>,
+        ) {
+            DownloaderBuilder::new()
+                .retry_wait_time(retry_wait_time)
+                .retry_attempts(retry_attempts)
+                .timeout(timeout)
+                .build()
+                .unwrap();
         }
-    }
+    );
 }

@@ -139,7 +139,7 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
-use std::num::NonZeroUsize;
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io, thread};
@@ -176,7 +176,7 @@ pub struct Downloader {
     storage_dir: PathBuf,
     /// Total number of attempts made to download a file. This is NonZero as it
     /// makes no sense to do 0 download attempts
-    download_attempts: NonZeroUsize,
+    download_attempts: NonZeroU64,
     /// How long to wait inbetween attempts do download a file
     failed_download_wait_time: Duration,
     /// The HTTP Client that's used for all requests
@@ -354,6 +354,8 @@ pub struct ReadmeDoctests;
 
 #[cfg(test)]
 mod test {
+    use proptest::prelude::*;
+
     use super::*;
     use crate::files::audio;
 
@@ -363,5 +365,79 @@ mod test {
         downloader.force_download(audio::JFK_ASK_NOT_WAV).unwrap();
 
         get_cached(audio::JFK_ASK_NOT_WAV).unwrap();
+    }
+
+    proptest! {
+            #[test]
+            fn get_doesnt_crash(name: String, sha256_hash: Vec<u8>, url: String) {
+                let dr: &DownloadRequest = &DownloadRequest {
+                        name: &name,
+                        sha256_hash: &sha256_hash,
+                        url: &url,
+                    };
+
+                let dl = DownloaderBuilder::new().retry_attempts(0).build().unwrap();
+                let _error_ignored = dl.get(dr);
+            }
+
+            #[test]
+            fn get_cached_doesnt_crash(name: String, sha256_hash: Vec<u8>, url: String) {
+                let dr: &DownloadRequest = &DownloadRequest {
+                        name: &name,
+                        sha256_hash: &sha256_hash,
+                        url: &url,
+                    };
+
+                let dl = DownloaderBuilder::new().retry_attempts(0).build().unwrap();
+                let _error_ignored = dl.get_cached(dr);
+            }
+
+            #[test]
+            fn get_path_doesnt_crash(name: String, sha256_hash: Vec<u8>, url: String) {
+                let dr: &DownloadRequest = &DownloadRequest {
+                        name: &name,
+                        sha256_hash: &sha256_hash,
+                        url: &url,
+                    };
+
+                let dl = DownloaderBuilder::new().retry_attempts(0).build().unwrap();
+                let _error_ignored = dl.get_path(dr);
+            }
+
+
+        fn get_doesnt_crash_with_retry(name: String, sha256_hash: Vec<u8>, url: String) {
+            let dr: &DownloadRequest = &DownloadRequest {
+                    name: &name,
+                    sha256_hash: &sha256_hash,
+                    url: &url,
+                };
+
+                let dl = DownloaderBuilder::new().retry_attempts(2).retry_wait_time(Duration::ZERO).build().unwrap();
+                let _error_ignored = dl.get(dr);
+        }
+
+        #[test]
+        fn get_cached_doesnt_crash_with_retry(name: String, sha256_hash: Vec<u8>, url: String) {
+            let dr: &DownloadRequest = &DownloadRequest {
+                    name: &name,
+                    sha256_hash: &sha256_hash,
+                    url: &url,
+                };
+
+                let dl = DownloaderBuilder::new().retry_attempts(2).retry_wait_time(Duration::ZERO).build().unwrap();
+                let _error_ignored = dl.get_cached(dr);
+        }
+
+        #[test]
+        fn get_path_doesnt_crash_with_retry(name: String, sha256_hash: Vec<u8>, url: String) {
+            let dr: &DownloadRequest = &DownloadRequest {
+                    name: &name,
+                    sha256_hash: &sha256_hash,
+                    url: &url,
+                };
+
+                let dl = DownloaderBuilder::new().retry_attempts(2).retry_wait_time(Duration::ZERO).build().unwrap();
+                let _error_ignored = dl.get_path(dr);
+        }
     }
 }

@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io};
@@ -31,19 +31,28 @@ use crate::{Downloader, Error};
 #[derive(Debug)]
 pub struct DownloaderBuilder {
     client: ClientBuilder,
-    retry_attempts: usize,
+    retry_attempts: u32,
     storage_dir: Option<PathBuf>,
     retry_wait_time: Duration,
 }
 
 fn default_storage_dir() -> io::Result<PathBuf> {
-    const LIBRARY_DIR_NAME: &str = "data_downloader_default_storage_directory";
+    const DEFAULT_DIR_NAME: &str = "data_downloader_default_storage_directory";
 
     let mut cache_dir = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
-    cache_dir.push(LIBRARY_DIR_NAME);
+    cache_dir.push(DEFAULT_DIR_NAME);
     fs::create_dir_all(&cache_dir)?;
     Ok(cache_dir)
 }
+
+const DEFAULT_USER_AGENT: &str = concat!(
+    env!("CARGO_PKG_NAME"),
+    "/",
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("CARGO_PKG_REPOSITORY"),
+    ") reqwest",
+);
 
 impl DownloaderBuilder {
     /// Create a new builder
@@ -51,7 +60,9 @@ impl DownloaderBuilder {
     /// This is the same as calling [`Downloader::builder()`]
     pub fn new() -> Self {
         DownloaderBuilder {
-            client: ClientBuilder::new().timeout(None),
+            client: ClientBuilder::new()
+                .timeout(None)
+                .user_agent(DEFAULT_USER_AGENT),
             retry_attempts: 4,
             storage_dir: None,
             retry_wait_time: Duration::from_millis(500),
@@ -91,7 +102,7 @@ impl DownloaderBuilder {
     ///
     /// If set to zero only one request will be sent for each call to
     /// [`Downloader::get`]
-    pub fn retry_attempts(mut self, retry: usize) -> Self {
+    pub fn retry_attempts(mut self, retry: u32) -> Self {
         self.retry_attempts = retry;
         self
     }
@@ -118,8 +129,8 @@ impl DownloaderBuilder {
         Ok(Downloader {
             storage_dir,
             client: self.client.build()?,
-            download_attempts: NonZeroUsize::new(self.retry_attempts + 1)
-                .expect("Cannot fail because 1 + usize > 0"),
+            download_attempts: NonZeroU64::new(u64::from(self.retry_attempts) + 1)
+                .expect("Cannot fail because 1 + u64 > 0"),
             failed_download_wait_time: self.retry_wait_time,
         })
     }
@@ -128,5 +139,19 @@ impl DownloaderBuilder {
 impl Default for DownloaderBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    proptest! {
+        #[test]
+        fn builder_doesnt_crash(retry_wait_time: Duration, retry_attempts: u32, timeout: Option<Duration>) {
+            DownloaderBuilder::new().retry_wait_time(retry_wait_time).retry_attempts(retry_attempts).timeout(timeout).build().unwrap();
+        }
     }
 }

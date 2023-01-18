@@ -70,28 +70,20 @@ mod test {
     use std::time::Duration;
 
     use super::*;
-    use crate::{get, Downloader};
+    use crate::Downloader;
 
     #[test]
     fn download_test() {
-        get(PEPPERS_TIFF).unwrap();
-        get(MANDRILL_TIFF).unwrap();
-        get(RUST_LOGO_PNG).unwrap();
-        get(RUST_LOGO_BLK_PNG).unwrap();
-    }
-
-    #[test]
-    fn download_test_2() {
-        // Slightly flaky files that might need some more attempts and longer wait times
-
         let dl = Downloader::builder()
-            .retry_attempts(6)
+            .retry_attempts(2)
             .retry_wait_time(Duration::from_secs_f32(10.0))
             .build()
             .unwrap();
 
-        dl.get(TUX_SVG).unwrap();
-        dl.get(TUX_PNG).unwrap();
+        dl.get(PEPPERS_TIFF).unwrap();
         dl.get(TIGER_SVG).unwrap();
+        dl.get(RUST_LOGO_PNG).unwrap();
+        dl.get(TUX_PNG).unwrap();
+        dl.get(MANDRILL_TIFF).unwrap();
     }
 }

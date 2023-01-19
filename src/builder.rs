@@ -5,6 +5,7 @@ use std::{fs, io};
 
 use reqwest::blocking::ClientBuilder;
 
+use crate::downloader::InnerDownloader;
 use crate::{Downloader, Error};
 
 /// A builder for constructing a [`Downloader`]
@@ -127,11 +128,13 @@ impl DownloaderBuilder {
         };
 
         Ok(Downloader {
-            storage_dir,
-            client: self.client.build()?,
-            download_attempts: NonZeroU64::new(u64::from(self.retry_attempts) + 1)
-                .expect("Cannot fail because 1 + u64 > 0"),
-            failed_download_wait_time: self.retry_wait_time,
+            inner: InnerDownloader {
+                storage_dir,
+                client: self.client.build()?,
+                download_attempts: NonZeroU64::new(u64::from(self.retry_attempts) + 1)
+                    .expect("Cannot fail because 1 + u64 > 0"),
+                failed_download_wait_time: self.retry_wait_time,
+            },
         })
     }
 }

@@ -140,6 +140,7 @@ use std::io::{self, Cursor};
 use std::path::PathBuf;
 
 use checked::CheckedVec;
+use downloader::{DowloadContext, InnerDownloader};
 use reqwest::blocking::Client;
 use thiserror::Error;
 
@@ -181,6 +182,11 @@ pub struct InZipDownloadRequest<'a> {
     pub parent: &'a DownloadRequest<'a>,
 }
 
+#[doc(hidden)]
+/// Implemenation detail to hide InnerDownloader in Downloadable
+#[derive(Debug)]
+pub struct HiddenInner<'a>(&'a InnerDownloader, &'a mut DowloadContext);
+
 /// A thing that can be downloaded
 /// This is a sealed trait and cannot be implemented by users of the library
 pub trait Downloadable: sealed::DownloadableSealed {
@@ -193,7 +199,7 @@ pub trait Downloadable: sealed::DownloadableSealed {
     #[doc(hidden)]
     /// Somehow obtain the data
     /// For example by downloading or by unpacking.
-    fn procure(&self, downloader: &Downloader) -> Result<CheckedVec, Error>;
+    fn procure(&self, downloader: HiddenInner) -> Result<CheckedVec, Error>;
 }
 
 mod sealed {
@@ -262,13 +268,16 @@ impl Downloadable for DownloadRequest<'_> {
         self.sha256_hash
     }
 
-    fn procure(&self, downloader: &Downloader) -> Result<CheckedVec, Error> {
-        let target_path = downloader.compute_path(self)?;
+    fn procure(&self, inner: HiddenInner) -> Result<CheckedVec, Error> {
+        let downloader = inner.0;
 
         for i in 0..downloader.download_attempts.get() {
             // We recheck here in case somebody else has donwloaded it by now
-            if target_path.exists() {
-                return downloader.get_cached(self);
+            if inner.1.path.exists() {
+                match downloader.get_cached(inner.1, self) {
+                    Err(Error::OnDiskHashMismatch { .. }) => { /* ignore and do the download */ }
+                    e => return e,
+                }
             }
 
             let x = download(&downloader.client, self.url)
@@ -280,10 +289,10 @@ impl Downloadable for DownloadRequest<'_> {
                 Ok(Ok(res)) => return Ok(res),
                 Ok(Err(hasherr)) => {
                     if is_last_iter {
-                        return Err(Error::DownloadHashMismatch {
+                        return Err(Error::DownloadHashMismatch(HashMismatch {
                             expected: hex_str(self.sha256_hash),
                             was: hex_str(&hasherr.got),
-                        });
+                        }));
                     }
                 }
                 Err(reqerr) => {
@@ -313,15 +322,17 @@ impl Downloadable for InZipDownloadRequest<'_> {
         self.sha256_hash
     }
 
-    fn procure(&self, client: &Downloader) -> Result<CheckedVec, Error> {
+    fn procure(&self, downloader: HiddenInner) -> Result<CheckedVec, Error> {
         use std::io::Read;
+
+        let downloader = downloader.0;
 
         // TODO we read the entire file because we use get. It's probably ok not to
         // verify the sha of the zip because we verify the sha of the inner file.
         // assuming that we don't suffer from some malicous ZIP attack making the extact
         // take forever also this will do a lot of retires.
 
-        let zip_bytes = client.get(self.parent)?;
+        let zip_bytes = downloader.get(&mut downloader.make_context(self.parent)?, self.parent)?;
         let mut buf = Cursor::new(zip_bytes.into_vec());
         let mut archive = ZipArchive::new(&mut buf)?;
 
@@ -333,10 +344,10 @@ impl Downloadable for InZipDownloadRequest<'_> {
         match CheckedVec::try_new(res, self.sha256()) {
             Ok(vec) => Ok(vec),
             Err(err) => {
-                return Err(Error::ZipContentsHashMismatch {
+                return Err(Error::ZipContentsHashMismatch(HashMismatch {
                     expected: hex_str(self.sha256()),
                     was: hex_str(&err.got),
-                })
+                }))
             }
         }
     }
@@ -348,7 +359,7 @@ impl Downloadable for InZipDownloadRequest<'_> {
 /// This is equivalent to calling [`Downloader::get`] on the default
 /// [`Downloader`]
 pub fn get(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-    Ok(Downloader::new()?.get(r)?.into_vec())
+    Downloader::new()?.get(r)
 }
 
 /// Get the file contents and *fail* with an IO error if the file is not yet
@@ -357,7 +368,7 @@ pub fn get(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 /// This is equivalent to calling [`Downloader::get_cached`] on the default
 /// [`Downloader`]
 pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-    Ok(Downloader::new()?.get_cached(r)?.into_vec())
+    Downloader::new()?.get_cached(r)
 }
 
 /// Computes the full path to the file and if the file has not yet been
@@ -379,33 +390,29 @@ pub enum Error {
     /// An io Error
     Io(#[from] io::Error),
     /// The hash of a downloaded file did not match
-    #[error("Wrong hash! Expected {expected} got {was}")]
-    DownloadHashMismatch {
-        /// The hash that was expected
-        expected: String,
-        /// The hash that the actual file had
-        was: String,
-    },
+    #[error("Wrong hash! Expected {} got {}", .0.expected, .0.was)]
+    DownloadHashMismatch(HashMismatch),
     /// The hash of a file from the on disk cache did not match
-    #[error("Wrong hash on disk! Expected {expected} got {was}")]
-    OnDiskHashMismatch {
-        /// The hash that was expected
-        expected: String,
-        /// The hash that the actual file had
-        was: String,
-    },
+    #[error("Wrong hash on disk! Expected {} got {}", .0.expected, .0.was)]
+    OnDiskHashMismatch(HashMismatch),
     /// The hash of a file extracted from a zip
-    #[error("Wrong hash from a file in a zip! Expected {expected} got {was}")]
-    ZipContentsHashMismatch {
-        /// The hash that was expected
-        expected: String,
-        /// The hash that the actual file had
-        was: String,
-    },
-
+    #[error("Wrong hash from a file in a zip! Expected {} got {}", .0.expected, .0.was)]
+    ZipContentsHashMismatch(HashMismatch),
+    /// Data set by the user had the wrong hash
+    #[error("Wrong hash for manually set data! Expected {} got {}", .0.expected, .0.was)]
+    ManualHashMismatch(HashMismatch),
     /// An error caused by zip
     #[error("ZipError {0}")]
     ZipError(#[from] zip::result::ZipError),
+}
+
+/// A hash was not as expected
+#[derive(Debug)]
+pub struct HashMismatch {
+    /// The hash that was expected
+    expected: String,
+    /// The hash that the actual file had
+    was: String,
 }
 
 // For testing the readme
@@ -437,7 +444,7 @@ mod test {
         let dl = Downloader::builder().retry_attempts(0).build().unwrap();
 
         let res = dl.get(&z).unwrap();
-        let str = String::from_utf8(res.into_vec()).unwrap();
+        let str = String::from_utf8(res).unwrap();
         println!("{}", str);
     }
 }

@@ -3,11 +3,12 @@ use std::io::{Read, Write};
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::Duration;
-use std::{fs, io, thread};
+use std::{fs, io};
 
 use reqwest::blocking::Client;
 
-use crate::utils::{hex_str, sha256};
+use crate::checked::CheckedVec;
+use crate::utils::hex_str;
 use crate::{utils, DownloadRequest, Downloadable, DownloaderBuilder, Error};
 
 /// Configurable Downloader
@@ -45,13 +46,28 @@ impl Downloader {
         DownloaderBuilder::new()
     }
 
-    fn compute_path(&self, r: &impl Downloadable) -> io::Result<PathBuf> {
+    pub(crate) fn compute_path(&self, r: &impl Downloadable) -> io::Result<PathBuf> {
         let hash_string = hex_str(r.sha256());
         let file_name = format!("{hash_string}_{}", r.file_name());
         let mut target_path = self.storage_dir.clone();
         target_path.push(file_name);
 
         Ok(target_path)
+    }
+
+    /// Get the path and return the data if we loaded it anyways
+    pub(crate) fn get_path_with_optional_data(
+        &self,
+        r: &DownloadRequest,
+    ) -> Result<(PathBuf, Option<CheckedVec>), Error> {
+        let path = self.compute_path(r)?;
+
+        if path.exists() {
+            Ok((path, None))
+        } else {
+            let dat = self.get(r)?;
+            Ok((path, Some(dat)))
+        }
     }
 
     /// Computes the full path to the file and if the file has not yet been
@@ -62,26 +78,21 @@ impl Downloader {
     /// actor so there is no guarantee that if you pass this path that
     /// this will be the correct file.
     pub fn get_path(&self, r: &DownloadRequest) -> Result<PathBuf, Error> {
-        let path = self.compute_path(r)?;
-
-        if !path.exists() {
-            self.get(r)?;
-        }
+        let (path, _) = self.get_path_with_optional_data(r)?;
 
         Ok(path)
     }
 
-    /// Download the file even if it already exists.
-    fn force_download(&self, r: &impl Downloadable) -> Result<Vec<u8>, Error> {
-        let contents = r.compute(&self)?;
-        let hash = sha256(&contents);
-
-        if hash != r.sha256() {
-            return Err(Error::DownloadHashMismatch {
-                expected: hex_str(r.sha256()),
-                was: hex_str(&hash),
-            });
-        }
+    /// Write these contents to disk
+    ///
+    /// # Panics
+    /// if this CheckedVec does not match the Downloadable
+    fn write_to_file_prechecked(
+        &self,
+        r: &impl Downloadable,
+        contents: &CheckedVec,
+    ) -> Result<(), Error> {
+        assert_eq!(contents.sha256(), r.sha256());
 
         let target_path = self.compute_path(r)?;
 
@@ -92,76 +103,49 @@ impl Downloader {
             &format!("download_{}", r.file_name()),
         )?;
 
-        tmp_file.write_all(&contents)?;
+        tmp_file.write_all(contents.as_slice())?;
 
         fs::rename(tmp_file_path, target_path)?;
 
-        Ok(contents.to_vec())
+        Ok(())
     }
 
     /// Get the file contents and if the file has not yet been downloaded,
     /// download it.
-    pub fn get(&self, r: &impl Downloadable) -> Result<Vec<u8>, Error> {
+    pub fn get(&self, r: &impl Downloadable) -> Result<CheckedVec, Error> {
         let target_path = self.compute_path(r)?;
 
-        for i in 0..self.download_attempts.get() {
-            // We recheck here in case somebody else has donwloaded it by now
-            if target_path.exists() {
-                return self.get_cached(r);
-            }
-            match self.force_download(r) {
-                Ok(data) => return Ok(data),
-                Err(e) => {
-                    // This is the last loop iteration
-
-                    //TODO: only retry here if the error is considered recoverable
-
-                    if i == self.download_attempts.get() - 1 {
-                        return Err(e);
-                    }
-                    if !self.failed_download_wait_time.is_zero() {
-                        thread::sleep(self.failed_download_wait_time);
-                    }
-                }
-            }
+        if target_path.exists() {
+            return self.get_cached(r);
         }
 
-        unreachable!()
+        let contents = r.procure(self)?;
+
+        self.write_to_file_prechecked(r, &contents)?;
+
+        debug_assert_eq!(r.sha256(), contents.sha256());
+        Ok(contents)
     }
 
     /// Get the file contents and *fail* with an IO error if the file is not yet
     /// downloaded
-    pub fn get_cached(&self, r: &impl Downloadable) -> Result<Vec<u8>, Error> {
+    pub fn get_cached(&self, r: &impl Downloadable) -> Result<CheckedVec, Error> {
         let target_path = self.compute_path(r)?;
 
         let mut res = vec![];
         let mut file = File::open(target_path)?;
         file.read_to_end(&mut res)?;
 
-        let hash = sha256(&res);
+        match CheckedVec::try_new(res, r.sha256()) {
+            Ok(vec) => {
+                debug_assert_eq!(r.sha256(), vec.sha256());
+                Ok(vec)
+            }
 
-        if hash != r.sha256() {
-            return Err(Error::OnDiskHashMismatch {
+            Err(err) => Err(Error::OnDiskHashMismatch {
                 expected: hex_str(r.sha256()),
-                was: hex_str(&hash),
-            });
+                was: hex_str(&err.got),
+            }),
         }
-
-        Ok(res)
-    }
-}
-
-#[cfg(test)]
-mod test {
-
-    use super::*;
-    use crate::files::audio;
-
-    #[test]
-    fn download_test() {
-        let downloader = Downloader::new().unwrap();
-        downloader.force_download(audio::JFK_ASK_NOT_WAV).unwrap();
-
-        downloader.get_cached(audio::JFK_ASK_NOT_WAV).unwrap();
     }
 }

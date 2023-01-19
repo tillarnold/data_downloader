@@ -139,6 +139,8 @@
 use std::io::{self, Cursor};
 use std::path::PathBuf;
 
+use checked::CheckedVec;
+use reqwest::blocking::Client;
 use thiserror::Error;
 
 mod builder;
@@ -148,6 +150,7 @@ mod utils;
 
 pub use builder::DownloaderBuilder;
 pub use downloader::Downloader;
+use utils::hex_str;
 use zip::ZipArchive;
 
 /// A file to be downloaded
@@ -179,29 +182,125 @@ pub struct InZipDownloadRequest<'a> {
 }
 
 /// A thing that can be downloaded
-pub trait Downloadable {
+/// This is a sealed trait and cannot be implemented by users of the library
+pub trait Downloadable: sealed::DownloadableSealed {
+    #[doc(hidden)]
     /// name of the file for user
     fn file_name(&self) -> &str;
+    #[doc(hidden)]
     /// Expected sha256
     fn sha256(&self) -> &[u8];
-    /// Download this or extract it
-    fn compute(&self, client: &Downloader) -> Result<Vec<u8>, Error>;
+    #[doc(hidden)]
+    /// Somehow obtain the data
+    /// For example by downloading or by unpacking.
+    fn procure(&self, downloader: &Downloader) -> Result<CheckedVec, Error>;
+}
+
+mod sealed {
+    use super::*;
+
+    pub trait DownloadableSealed {}
+
+    impl DownloadableSealed for DownloadRequest<'_> {}
+    impl DownloadableSealed for InZipDownloadRequest<'_> {}
+}
+
+mod checked {
+
+    use crate::utils::sha256;
+
+    #[derive(Debug)]
+    pub struct CheckedVec {
+        data: Vec<u8>,
+        sha256: [u8; 32],
+    }
+
+    #[derive(Debug)]
+    pub struct CheckedVecErr {
+        pub data: Vec<u8>,
+        pub got: [u8; 32],
+    }
+
+    impl CheckedVec {
+        pub fn try_new(data: Vec<u8>, expected: &[u8]) -> Result<Self, CheckedVecErr> {
+            let real = sha256(&data);
+
+            if expected == real {
+                Ok(Self { data, sha256: real })
+            } else {
+                Err(CheckedVecErr { data, got: real })
+            }
+        }
+
+        pub fn into_vec(self) -> Vec<u8> {
+            self.data
+        }
+
+        pub fn sha256(&self) -> &[u8] {
+            &self.sha256
+        }
+
+        pub fn as_slice(&self) -> &[u8] {
+            self.data.as_slice()
+        }
+    }
+}
+
+fn download(client: &Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
+    let response = client.get(url).send()?;
+    let bytes = response.bytes()?;
+
+    Ok(bytes.to_vec())
 }
 
 impl Downloadable for DownloadRequest<'_> {
     fn file_name(&self) -> &str {
-        return self.name;
+        self.name
     }
 
     fn sha256(&self) -> &[u8] {
         self.sha256_hash
     }
 
-    fn compute(&self, client: &Downloader) -> Result<Vec<u8>, Error> {
-        let response = client.client.get(self.url).send()?;
-        let contents = response.bytes()?;
+    fn procure(&self, downloader: &Downloader) -> Result<CheckedVec, Error> {
+        let target_path = downloader.compute_path(self)?;
 
-        Ok(contents.to_vec())
+        for i in 0..downloader.download_attempts.get() {
+            // We recheck here in case somebody else has donwloaded it by now
+            if target_path.exists() {
+                return downloader.get_cached(self);
+            }
+
+            let x = download(&downloader.client, self.url)
+                .map(|e| CheckedVec::try_new(e, self.sha256_hash));
+
+            let is_last_iter = i == downloader.download_attempts.get() - 1;
+
+            match x {
+                Ok(Ok(res)) => return Ok(res),
+                Ok(Err(hasherr)) => {
+                    if is_last_iter {
+                        return Err(Error::DownloadHashMismatch {
+                            expected: hex_str(self.sha256_hash),
+                            was: hex_str(&hasherr.got),
+                        });
+                    }
+                }
+                Err(reqerr) => {
+                    //TODO: only retry here if the error is considered recoverable
+
+                    if is_last_iter {
+                        return Err(reqerr.into());
+                    }
+                }
+            }
+
+            if !downloader.failed_download_wait_time.is_zero() {
+                std::thread::sleep(downloader.failed_download_wait_time);
+            }
+        }
+
+        unreachable!()
     }
 }
 
@@ -214,7 +313,7 @@ impl Downloadable for InZipDownloadRequest<'_> {
         self.sha256_hash
     }
 
-    fn compute(&self, client: &Downloader) -> Result<Vec<u8>, Error> {
+    fn procure(&self, client: &Downloader) -> Result<CheckedVec, Error> {
         use std::io::Read;
 
         // TODO we read the entire file because we use get. It's probably ok not to
@@ -223,18 +322,23 @@ impl Downloadable for InZipDownloadRequest<'_> {
         // take forever also this will do a lot of retires.
 
         let zip_bytes = client.get(self.parent)?;
-        let mut buf = Cursor::new(zip_bytes);
-        let mut archive = ZipArchive::new(&mut buf).expect("TODO");
+        let mut buf = Cursor::new(zip_bytes.into_vec());
+        let mut archive = ZipArchive::new(&mut buf)?;
 
-        let files = archive.file_names().collect::<Vec<&str>>();
-        println!("files {files:?}");
-
-        let mut fl = archive.by_name(self.path).expect("TODO");
+        let mut fl = archive.by_name(self.path)?;
         let mut res = vec![]; //TOOD with expected capacyit
 
-        fl.read_to_end(&mut res).expect("TODO");
+        fl.read_to_end(&mut res)?;
 
-        Ok(res)
+        match CheckedVec::try_new(res, self.sha256()) {
+            Ok(vec) => Ok(vec),
+            Err(err) => {
+                return Err(Error::ZipContentsHashMismatch {
+                    expected: hex_str(self.sha256()),
+                    was: hex_str(&err.got),
+                })
+            }
+        }
     }
 }
 
@@ -244,7 +348,7 @@ impl Downloadable for InZipDownloadRequest<'_> {
 /// This is equivalent to calling [`Downloader::get`] on the default
 /// [`Downloader`]
 pub fn get(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-    Downloader::new()?.get(r)
+    Ok(Downloader::new()?.get(r)?.into_vec())
 }
 
 /// Get the file contents and *fail* with an IO error if the file is not yet
@@ -253,7 +357,7 @@ pub fn get(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 /// This is equivalent to calling [`Downloader::get_cached`] on the default
 /// [`Downloader`]
 pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-    Downloader::new()?.get_cached(r)
+    Ok(Downloader::new()?.get_cached(r)?.into_vec())
 }
 
 /// Computes the full path to the file and if the file has not yet been
@@ -290,6 +394,18 @@ pub enum Error {
         /// The hash that the actual file had
         was: String,
     },
+    /// The hash of a file extracted from a zip
+    #[error("Wrong hash from a file in a zip! Expected {expected} got {was}")]
+    ZipContentsHashMismatch {
+        /// The hash that was expected
+        expected: String,
+        /// The hash that the actual file had
+        was: String,
+    },
+
+    /// An error caused by zip
+    #[error("ZipError {0}")]
+    ZipError(#[from] zip::result::ZipError),
 }
 
 // For testing the readme
@@ -321,7 +437,7 @@ mod test {
         let dl = Downloader::builder().retry_attempts(0).build().unwrap();
 
         let res = dl.get(&z).unwrap();
-        let str = String::from_utf8(res).unwrap();
+        let str = String::from_utf8(res.into_vec()).unwrap();
         println!("{}", str);
     }
 }

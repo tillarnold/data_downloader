@@ -136,7 +136,7 @@
 //!       low priority, especially while the [`enum@crate::Error`] type is still
 //!       changing frequently.
 
-use std::io;
+use std::io::{self, Cursor};
 use std::path::PathBuf;
 
 use thiserror::Error;
@@ -148,6 +148,7 @@ mod utils;
 
 pub use builder::DownloaderBuilder;
 pub use downloader::Downloader;
+use zip::ZipArchive;
 
 /// A file to be downloaded
 #[derive(Debug)]
@@ -160,6 +161,81 @@ pub struct DownloadRequest<'a> {
     /// If two files with the same SHA-256 but different names are
     /// reqeuested this will result in two separate downloads
     pub name: &'a str,
+}
+
+/// A file in a zip to be downloaded
+#[derive(Debug)]
+pub struct InZipDownloadRequest<'a> {
+    /// Path inside the zip
+    pub path: &'a str,
+    /// Expected SHA-256 checksum
+    pub sha256_hash: &'a [u8],
+    /// The name of the file.
+    /// If two files with the same SHA-256 but different names are
+    /// reqeuested this will result in two separate downloads
+    pub name: &'a str,
+    /// The zip this is in
+    pub parent: &'a DownloadRequest<'a>,
+}
+
+/// A thing that can be downloaded
+pub trait Downloadable {
+    /// name of the file for user
+    fn file_name(&self) -> &str;
+    /// Expected sha256
+    fn sha256(&self) -> &[u8];
+    /// Download this or extract it
+    fn compute(&self, client: &Downloader) -> Result<Vec<u8>, Error>;
+}
+
+impl Downloadable for DownloadRequest<'_> {
+    fn file_name(&self) -> &str {
+        return self.name;
+    }
+
+    fn sha256(&self) -> &[u8] {
+        self.sha256_hash
+    }
+
+    fn compute(&self, client: &Downloader) -> Result<Vec<u8>, Error> {
+        let response = client.client.get(self.url).send()?;
+        let contents = response.bytes()?;
+
+        Ok(contents.to_vec())
+    }
+}
+
+impl Downloadable for InZipDownloadRequest<'_> {
+    fn file_name(&self) -> &str {
+        self.name
+    }
+
+    fn sha256(&self) -> &[u8] {
+        self.sha256_hash
+    }
+
+    fn compute(&self, client: &Downloader) -> Result<Vec<u8>, Error> {
+        use std::io::Read;
+
+        // TODO we read the entire file because we use get. It's probably ok not to
+        // verify the sha of the zip because we verify the sha of the inner file.
+        // assuming that we don't suffer from some malicous ZIP attack making the extact
+        // take forever also this will do a lot of retires.
+
+        let zip_bytes = client.get(self.parent)?;
+        let mut buf = Cursor::new(zip_bytes);
+        let mut archive = ZipArchive::new(&mut buf).expect("TODO");
+
+        let files = archive.file_names().collect::<Vec<&str>>();
+        println!("files {files:?}");
+
+        let mut fl = archive.by_name(self.path).expect("TODO");
+        let mut res = vec![]; //TOOD with expected capacyit
+
+        fl.read_to_end(&mut res).expect("TODO");
+
+        Ok(res)
+    }
 }
 
 /// Get the file contents and if the file has not yet been downloaded, download
@@ -220,3 +296,32 @@ pub enum Error {
 #[doc = include_str!("../README.md")]
 #[cfg(doctest)]
 pub struct ReadmeDoctests;
+
+#[cfg(test)]
+mod test {
+    use hex_literal::hex;
+
+    use crate::{DownloadRequest, Downloader, InZipDownloadRequest};
+
+    #[test]
+    fn zip_test() {
+        let z = InZipDownloadRequest {
+            parent: &DownloadRequest {
+                url: "https://github.com/tillarnold/data_downloader/archive/refs/tags/v0.1.0.zip",
+                sha256_hash: &hex!(
+                    "3A1929ABF26E7E03A93206D1D068B36C3F7182F304CF317FD71766113DDA5C4E"
+                ),
+                name: "data_downloader-v0.1.0.zip",
+            },
+            path: "data_downloader-0.1.0/src/files/ml/whisper_cpp.rs",
+            sha256_hash: &hex!("a6e18802876c198b9b99c33ce932890e57f01e0eab9ec19ac8ab2908025d1ae2"),
+            name: "whisper_cpp.rs",
+        };
+
+        let dl = Downloader::builder().retry_attempts(0).build().unwrap();
+
+        let res = dl.get(&z).unwrap();
+        let str = String::from_utf8(res).unwrap();
+        println!("{}", str);
+    }
+}

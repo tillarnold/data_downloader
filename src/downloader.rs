@@ -8,7 +8,7 @@ use std::{fs, io, thread};
 use reqwest::blocking::Client;
 
 use crate::utils::{hex_str, sha256};
-use crate::{utils, DownloadRequest, DownloaderBuilder, Error};
+use crate::{utils, DownloadRequest, Downloadable, DownloaderBuilder, Error};
 
 /// Configurable Downloader
 ///
@@ -45,9 +45,9 @@ impl Downloader {
         DownloaderBuilder::new()
     }
 
-    fn compute_path(&self, r: &DownloadRequest) -> io::Result<PathBuf> {
-        let hash_string = hex_str(r.sha256_hash);
-        let file_name = format!("{hash_string}_{}", r.name);
+    fn compute_path(&self, r: &impl Downloadable) -> io::Result<PathBuf> {
+        let hash_string = hex_str(r.sha256());
+        let file_name = format!("{hash_string}_{}", r.file_name());
         let mut target_path = self.storage_dir.clone();
         target_path.push(file_name);
 
@@ -72,14 +72,13 @@ impl Downloader {
     }
 
     /// Download the file even if it already exists.
-    fn force_download(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
-        let response = self.client.get(r.url).send()?;
-        let contents = response.bytes()?;
+    fn force_download(&self, r: &impl Downloadable) -> Result<Vec<u8>, Error> {
+        let contents = r.compute(&self)?;
         let hash = sha256(&contents);
 
-        if hash != r.sha256_hash {
+        if hash != r.sha256() {
             return Err(Error::DownloadHashMismatch {
-                expected: hex_str(r.sha256_hash),
+                expected: hex_str(r.sha256()),
                 was: hex_str(&hash),
             });
         }
@@ -90,7 +89,7 @@ impl Downloader {
             target_path
                 .parent()
                 .expect("target path is a file in a dir"),
-            &format!("download_{}", r.name),
+            &format!("download_{}", r.file_name()),
         )?;
 
         tmp_file.write_all(&contents)?;
@@ -102,7 +101,7 @@ impl Downloader {
 
     /// Get the file contents and if the file has not yet been downloaded,
     /// download it.
-    pub fn get(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
+    pub fn get(&self, r: &impl Downloadable) -> Result<Vec<u8>, Error> {
         let target_path = self.compute_path(r)?;
 
         for i in 0..self.download_attempts.get() {
@@ -114,6 +113,9 @@ impl Downloader {
                 Ok(data) => return Ok(data),
                 Err(e) => {
                     // This is the last loop iteration
+
+                    //TODO: only retry here if the error is considered recoverable
+
                     if i == self.download_attempts.get() - 1 {
                         return Err(e);
                     }
@@ -129,7 +131,7 @@ impl Downloader {
 
     /// Get the file contents and *fail* with an IO error if the file is not yet
     /// downloaded
-    pub fn get_cached(&self, r: &DownloadRequest) -> Result<Vec<u8>, Error> {
+    pub fn get_cached(&self, r: &impl Downloadable) -> Result<Vec<u8>, Error> {
         let target_path = self.compute_path(r)?;
 
         let mut res = vec![];
@@ -138,9 +140,9 @@ impl Downloader {
 
         let hash = sha256(&res);
 
-        if hash != r.sha256_hash {
+        if hash != r.sha256() {
             return Err(Error::OnDiskHashMismatch {
-                expected: hex_str(r.sha256_hash),
+                expected: hex_str(r.sha256()),
                 was: hex_str(&hash),
             });
         }

@@ -9,7 +9,7 @@ use reqwest::blocking::Client;
 
 use crate::hashed::HashedVec;
 use crate::utils::{hex_str, sha256};
-use crate::{utils, Downloadable, DownloaderBuilder, Error, HashMismatch};
+use crate::{utils, Downloadable, DownloaderBuilder, Error, HashMismatch, InnerDownloadable};
 
 #[derive(Debug)]
 pub(crate) struct DowloadContext {
@@ -29,11 +29,9 @@ pub(crate) struct InnerDownloader {
 }
 
 impl InnerDownloader {
-    pub(crate) fn compute_path(&self, r: &impl Downloadable) -> io::Result<PathBuf> {
-        let hash_string = hex_str(r.sha256());
-        let file_name = format!("{hash_string}_{}", r.file_name());
+    pub(crate) fn compute_path(&self, r: &InnerDownloadable) -> io::Result<PathBuf> {
         let mut target_path = self.storage_dir.clone();
-        target_path.push(file_name);
+        target_path.push(hex_str(r.sha256()));
 
         Ok(target_path)
     }
@@ -42,7 +40,7 @@ impl InnerDownloader {
     pub(crate) fn get_path_with_optional_data(
         &self,
         mut ctx: DowloadContext,
-        r: &impl Downloadable,
+        r: &InnerDownloadable,
     ) -> Result<(PathBuf, Option<HashedVec>), Error> {
         if ctx.path.exists() {
             Ok((ctx.path, None))
@@ -52,7 +50,7 @@ impl InnerDownloader {
         }
     }
 
-    pub(crate) fn make_context(&self, r: &impl Downloadable) -> Result<DowloadContext, Error> {
+    pub(crate) fn make_context(&self, r: &InnerDownloadable) -> Result<DowloadContext, Error> {
         let path = self.compute_path(r)?;
         Ok(DowloadContext { path })
     }
@@ -60,11 +58,11 @@ impl InnerDownloader {
     fn tmp_file_for(
         &self,
         ctx: &mut DowloadContext,
-        r: &impl Downloadable,
+        r: &InnerDownloadable,
     ) -> io::Result<(File, PathBuf)> {
         utils::create_file_at(
             ctx.path.parent().expect("target path is a file in a dir"),
-            &format!("download_{}", r.file_name()),
+            &format!("download_{}", hex_str(r.sha256())),
         )
     }
 
@@ -75,7 +73,7 @@ impl InnerDownloader {
     fn write_to_file_prechecked(
         &self,
         ctx: &mut DowloadContext,
-        r: &impl Downloadable,
+        r: &InnerDownloadable,
         contents: &HashedVec,
     ) -> Result<(), io::Error> {
         assert_eq!(contents.sha256(), r.sha256());
@@ -94,7 +92,7 @@ impl InnerDownloader {
     fn write_to_file(
         &self,
         ctx: &mut DowloadContext,
-        r: &impl Downloadable,
+        r: &InnerDownloadable,
         contents: &[u8],
     ) -> Result<(), Error> {
         let real = sha256(contents);
@@ -117,9 +115,9 @@ impl InnerDownloader {
     fn procure_and_write(
         &self,
         ctx: &mut DowloadContext,
-        r: &impl Downloadable,
+        r: &InnerDownloadable,
     ) -> Result<HashedVec, Error> {
-        let contents = r.procure(crate::HiddenInner(self, ctx))?;
+        let contents = r.procure(self, ctx)?;
 
         self.write_to_file_prechecked(ctx, r, &contents)?;
 
@@ -127,7 +125,7 @@ impl InnerDownloader {
         Ok(contents)
     }
 
-    pub fn get(&self, ctx: &mut DowloadContext, r: &impl Downloadable) -> Result<HashedVec, Error> {
+    pub fn get(&self, ctx: &mut DowloadContext, r: &InnerDownloadable) -> Result<HashedVec, Error> {
         if ctx.path.exists() {
             match self.get_cached(ctx, r) {
                 Err(Error::OnDiskHashMismatch { .. }) => self.procure_and_write(ctx, r),
@@ -141,7 +139,7 @@ impl InnerDownloader {
     pub fn get_cached(
         &self,
         ctx: &DowloadContext,
-        r: &impl Downloadable,
+        r: &InnerDownloadable,
     ) -> Result<HashedVec, Error> {
         let mut res = vec![];
         let mut file = File::open(&ctx.path)?;
@@ -192,14 +190,17 @@ impl Downloader {
 
     /// Get the file contents and if the file has not yet been downloaded,
     /// download it.
-    pub fn get(&self, r: &impl Downloadable) -> Result<Vec<u8>, Error> {
-        let mut ctx = self.inner.make_context(r)?;
-        Ok(self.inner.get(&mut ctx, r)?.into_vec())
+    pub fn get<'a>(&self, r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
+        let r = r.into().0;
+        let mut ctx = self.inner.make_context(&r)?;
+        Ok(self.inner.get(&mut ctx, &r)?.into_vec())
     }
 
     /// Get the file contents and *fail* with an IO error if the file is not yet
     /// downloaded
-    pub fn get_cached(&self, r: &impl Downloadable) -> Result<Vec<u8>, Error> {
+    pub fn get_cached<'a>(&self, r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
+        let r = &r.into().0;
+
         let ctx = self.inner.make_context(r)?;
 
         Ok(self.inner.get_cached(&ctx, r)?.into_vec())
@@ -207,7 +208,9 @@ impl Downloader {
 
     /// Insert this data for this [`Downloadable`]. Will error if the SHA-256 is
     /// wrong
-    pub fn set(&self, r: &impl Downloadable, data: &[u8]) -> Result<(), Error> {
+    pub fn set<'a>(&self, r: impl Into<Downloadable<'a>>, data: &[u8]) -> Result<(), Error> {
+        let r = &r.into().0;
+
         let mut ctx = self.inner.make_context(r)?;
 
         self.inner.write_to_file(&mut ctx, r, data)
@@ -220,7 +223,9 @@ impl Downloader {
     /// The underlying file could have been changed at any point by a malicious
     /// actor so there is no guarantee that if you pass this path that
     /// this will be the correct file.
-    pub fn get_path(&self, r: &impl Downloadable) -> Result<PathBuf, Error> {
+    pub fn get_path<'a>(&self, r: impl Into<Downloadable<'a>>) -> Result<PathBuf, Error> {
+        let r = &r.into().0;
+
         let ctx = self.inner.make_context(r)?;
         let (path, _) = self.inner.get_path_with_optional_data(ctx, r)?;
 

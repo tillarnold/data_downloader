@@ -20,7 +20,6 @@
 //! // Define where to get the file from
 //! let rfc_link = &DownloadRequest {
 //!     url: "https://www.rfc-editor.org/rfc/rfc2068.txt",
-//!     name: "rfc2068.txt",
 //!     sha256_hash: &hex_literal::hex!(
 //!         "D6C4E471389F2D309AB1F90881576542C742F95B115336A346447D052E0477CF"
 //!     ),
@@ -73,20 +72,31 @@
 //! the download will never succeed because of the checksum mismatch, however
 //! the wrong file can be loaded from cache. For example here the above
 //! [`DownloadRequest`] was changed but only the `url` was adapted. Since
-//! neither the `name` nor `sha256_hash` are set to the correct value this will
+//! `sha256_hash` is not set to the correct value this will
 //! return `rfc2068.txt` from the cache. This is a user error, as the developer
 //! has to ensure that they specify the correct SHA-256 checksum for a
 //! [`DownloadRequest`].
 //!
 //! ```
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # use data_downloader::{get, get_cached, DownloadRequest};
-//! &DownloadRequest {
+//! let rfc7168 = &DownloadRequest {
 //!     url: "https://www.rfc-editor.org/rfc/rfc7168.txt",
-//!     name: "rfc2068.txt",
 //!     sha256_hash: &hex_literal::hex!(
 //!         "D6C4E471389F2D309AB1F90881576542C742F95B115336A346447D052E0477CF"
 //!     ),
 //! };
+//!
+//! let rfc2068 = &DownloadRequest {
+//!     url: "https://www.rfc-editor.org/rfc/rfc2068.txt",
+//!     sha256_hash: &hex_literal::hex!(
+//!         "D6C4E471389F2D309AB1F90881576542C742F95B115336A346447D052E0477CF"
+//!     ),
+//! };
+//!
+//! assert_eq!(get(rfc7168)?, get(rfc2068)?);
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Status of this crate
@@ -162,10 +172,6 @@ pub struct DownloadRequest<'a> {
     pub url: &'a str,
     /// Expected SHA-256 checksum
     pub sha256_hash: &'a [u8],
-    /// The name of the file.
-    /// If two files with the same SHA-256 but different names are
-    /// requested this will result in two separate downloads
-    pub name: &'a str,
 }
 
 /// A file in a zip to be downloaded
@@ -175,41 +181,132 @@ pub struct InZipDownloadRequest<'a> {
     pub path: &'a str,
     /// Expected SHA-256 checksum
     pub sha256_hash: &'a [u8],
-    /// The name of the file.
-    /// If two files with the same SHA-256 but different names are
-    /// requested this will result in two separate downloads
-    pub name: &'a str,
     /// The zip this is in
     pub parent: &'a DownloadRequest<'a>,
 }
 
-#[doc(hidden)]
-/// Implementation detail to hide [`InnerDownloader`] in [`Downloadable`]
-#[derive(Debug)]
-pub struct HiddenInner<'a>(&'a InnerDownloader, &'a mut DowloadContext);
-
 /// A thing that can be downloaded
-/// This is a sealed trait and cannot be implemented by users of the library
-pub trait Downloadable: sealed::DownloadableSealed {
-    #[doc(hidden)]
-    /// name of the file for user
-    fn file_name(&self) -> &str;
-    #[doc(hidden)]
-    /// Expected SHA-256
-    fn sha256(&self) -> &[u8];
-    #[doc(hidden)]
-    /// Somehow obtain the data
-    /// For example by downloading or by unpacking.
-    fn procure(&self, downloader: HiddenInner) -> Result<HashedVec, Error>;
+#[derive(Debug)]
+pub struct Downloadable<'a>(InnerDownloadable<'a>);
+
+impl<'a> From<&'a DownloadRequest<'_>> for Downloadable<'a> {
+    fn from(value: &'a DownloadRequest<'a>) -> Self {
+        Downloadable(InnerDownloadable::File(value))
+    }
 }
 
-mod sealed {
-    use super::*;
+impl<'a> From<&'a InZipDownloadRequest<'_>> for Downloadable<'a> {
+    fn from(value: &'a InZipDownloadRequest<'a>) -> Self {
+        Downloadable(InnerDownloadable::Zip(value))
+    }
+}
 
-    pub trait DownloadableSealed {}
+#[derive(Debug)]
+pub(crate) enum InnerDownloadable<'a> {
+    Zip(&'a InZipDownloadRequest<'a>),
+    File(&'a DownloadRequest<'a>),
+}
 
-    impl DownloadableSealed for DownloadRequest<'_> {}
-    impl DownloadableSealed for InZipDownloadRequest<'_> {}
+impl InnerDownloadable<'_> {
+    pub(crate) fn sha256(&self) -> &[u8] {
+        match self {
+            InnerDownloadable::Zip(z) => z.sha256_hash,
+            InnerDownloadable::File(f) => f.sha256_hash,
+        }
+    }
+
+    pub(crate) fn procure(
+        &self,
+        downloader: &InnerDownloader,
+        ctxt: &mut DowloadContext,
+    ) -> Result<HashedVec, Error> {
+        match self {
+            InnerDownloadable::Zip(zr) => {
+                use std::io::Read;
+
+                // TODO we read the entire file because we use get. It's probably ok not to
+                // verify the sha of the zip because we verify the sha of the inner file.
+                // assuming that we don't suffer from some malicous ZIP attack making the extact
+                // take forever also this will do a lot of retires.
+
+                let zip_bytes = downloader.get(
+                    &mut downloader.make_context(&zr.parent.into())?,
+                    &zr.parent.into(),
+                )?;
+                let mut buf = Cursor::new(zip_bytes.into_vec());
+                let mut archive = ZipArchive::new(&mut buf)?;
+
+                let mut fl = archive.by_name(zr.path)?;
+                let mut res = vec![]; //TOOD with expected capacyit
+
+                fl.read_to_end(&mut res)?;
+
+                match HashedVec::try_new(res, self.sha256()) {
+                    Ok(vec) => Ok(vec),
+                    Err(err) => {
+                        return Err(Error::ZipContentsHashMismatch(HashMismatch {
+                            expected: hex_str(self.sha256()),
+                            was: hex_str(&err.got),
+                        }))
+                    }
+                }
+            }
+            InnerDownloadable::File(sl) => {
+                for i in 0..downloader.download_attempts.get() {
+                    // We recheck here in case somebody else has donwloaded it by now
+                    if ctxt.path.exists() {
+                        match downloader.get_cached(ctxt, self) {
+                            Err(Error::OnDiskHashMismatch { .. }) => { /* ignore and do the download */
+                            }
+                            e => return e,
+                        }
+                    }
+
+                    let x = download(&downloader.client, sl.url)
+                        .map(|e| HashedVec::try_new(e, sl.sha256_hash));
+
+                    let is_last_iter = i == downloader.download_attempts.get() - 1;
+
+                    match x {
+                        Ok(Ok(res)) => return Ok(res),
+                        Ok(Err(hasherr)) => {
+                            if is_last_iter {
+                                return Err(Error::DownloadHashMismatch(HashMismatch {
+                                    expected: hex_str(sl.sha256_hash),
+                                    was: hex_str(&hasherr.got),
+                                }));
+                            }
+                        }
+                        Err(reqerr) => {
+                            //TODO: only retry here if the error is considered recoverable
+
+                            if is_last_iter {
+                                return Err(reqerr.into());
+                            }
+                        }
+                    }
+
+                    if !downloader.failed_download_wait_time.is_zero() {
+                        std::thread::sleep(downloader.failed_download_wait_time);
+                    }
+                }
+
+                unreachable!()
+            }
+        }
+    }
+}
+
+impl<'a> From<&'a DownloadRequest<'_>> for InnerDownloadable<'a> {
+    fn from(value: &'a DownloadRequest<'a>) -> Self {
+        InnerDownloadable::File(value)
+    }
+}
+
+impl<'a> From<&'a InZipDownloadRequest<'_>> for InnerDownloadable<'a> {
+    fn from(value: &'a InZipDownloadRequest<'a>) -> Self {
+        InnerDownloadable::Zip(value)
+    }
 }
 
 fn download(client: &Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
@@ -217,100 +314,6 @@ fn download(client: &Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
     let bytes = response.bytes()?;
 
     Ok(bytes.to_vec())
-}
-
-impl Downloadable for DownloadRequest<'_> {
-    fn file_name(&self) -> &str {
-        self.name
-    }
-
-    fn sha256(&self) -> &[u8] {
-        self.sha256_hash
-    }
-
-    fn procure(&self, inner: HiddenInner) -> Result<HashedVec, Error> {
-        let downloader = inner.0;
-
-        for i in 0..downloader.download_attempts.get() {
-            // We recheck here in case somebody else has donwloaded it by now
-            if inner.1.path.exists() {
-                match downloader.get_cached(inner.1, self) {
-                    Err(Error::OnDiskHashMismatch { .. }) => { /* ignore and do the download */ }
-                    e => return e,
-                }
-            }
-
-            let x = download(&downloader.client, self.url)
-                .map(|e| HashedVec::try_new(e, self.sha256_hash));
-
-            let is_last_iter = i == downloader.download_attempts.get() - 1;
-
-            match x {
-                Ok(Ok(res)) => return Ok(res),
-                Ok(Err(hasherr)) => {
-                    if is_last_iter {
-                        return Err(Error::DownloadHashMismatch(HashMismatch {
-                            expected: hex_str(self.sha256_hash),
-                            was: hex_str(&hasherr.got),
-                        }));
-                    }
-                }
-                Err(reqerr) => {
-                    //TODO: only retry here if the error is considered recoverable
-
-                    if is_last_iter {
-                        return Err(reqerr.into());
-                    }
-                }
-            }
-
-            if !downloader.failed_download_wait_time.is_zero() {
-                std::thread::sleep(downloader.failed_download_wait_time);
-            }
-        }
-
-        unreachable!()
-    }
-}
-
-impl Downloadable for InZipDownloadRequest<'_> {
-    fn file_name(&self) -> &str {
-        self.name
-    }
-
-    fn sha256(&self) -> &[u8] {
-        self.sha256_hash
-    }
-
-    fn procure(&self, downloader: HiddenInner) -> Result<HashedVec, Error> {
-        use std::io::Read;
-
-        let downloader = downloader.0;
-
-        // TODO we read the entire file because we use get. It's probably ok not to
-        // verify the sha of the zip because we verify the sha of the inner file.
-        // assuming that we don't suffer from some malicous ZIP attack making the extact
-        // take forever also this will do a lot of retires.
-
-        let zip_bytes = downloader.get(&mut downloader.make_context(self.parent)?, self.parent)?;
-        let mut buf = Cursor::new(zip_bytes.into_vec());
-        let mut archive = ZipArchive::new(&mut buf)?;
-
-        let mut fl = archive.by_name(self.path)?;
-        let mut res = vec![]; //TOOD with expected capacyit
-
-        fl.read_to_end(&mut res)?;
-
-        match HashedVec::try_new(res, self.sha256()) {
-            Ok(vec) => Ok(vec),
-            Err(err) => {
-                return Err(Error::ZipContentsHashMismatch(HashMismatch {
-                    expected: hex_str(self.sha256()),
-                    was: hex_str(&err.got),
-                }))
-            }
-        }
-    }
 }
 
 /// Get the file contents and if the file has not yet been downloaded, download
@@ -394,11 +397,9 @@ mod test {
                 sha256_hash: &hex!(
                     "3A1929ABF26E7E03A93206D1D068B36C3F7182F304CF317FD71766113DDA5C4E"
                 ),
-                name: "data_downloader-v0.1.0.zip",
             },
             path: "data_downloader-0.1.0/src/files/ml/whisper_cpp.rs",
             sha256_hash: &hex!("a6e18802876c198b9b99c33ce932890e57f01e0eab9ec19ac8ab2908025d1ae2"),
-            name: "whisper_cpp.rs",
         };
 
         let dl = Downloader::builder().retry_attempts(0).build().unwrap();

@@ -164,7 +164,7 @@ pub struct DownloadRequest<'a> {
     pub sha256_hash: &'a [u8],
     /// The name of the file.
     /// If two files with the same SHA-256 but different names are
-    /// reqeuested this will result in two separate downloads
+    /// requested this will result in two separate downloads
     pub name: &'a str,
 }
 
@@ -177,14 +177,14 @@ pub struct InZipDownloadRequest<'a> {
     pub sha256_hash: &'a [u8],
     /// The name of the file.
     /// If two files with the same SHA-256 but different names are
-    /// reqeuested this will result in two separate downloads
+    /// requested this will result in two separate downloads
     pub name: &'a str,
     /// The zip this is in
     pub parent: &'a DownloadRequest<'a>,
 }
 
 #[doc(hidden)]
-/// Implemenation detail to hide InnerDownloader in Downloadable
+/// Implementation detail to hide [`InnerDownloader`] in [`Downloadable`]
 #[derive(Debug)]
 pub struct HiddenInner<'a>(&'a InnerDownloader, &'a mut DowloadContext);
 
@@ -195,7 +195,7 @@ pub trait Downloadable: sealed::DownloadableSealed {
     /// name of the file for user
     fn file_name(&self) -> &str;
     #[doc(hidden)]
-    /// Expected sha256
+    /// Expected SHA-256
     fn sha256(&self) -> &[u8];
     #[doc(hidden)]
     /// Somehow obtain the data
@@ -347,7 +347,7 @@ pub enum Error {
     #[error("HTTP Request failed: {0}")]
     Reqwest(#[from] reqwest::Error),
     #[error("IO failed: {0}")]
-    /// An io Error
+    /// An IO Error
     Io(#[from] io::Error),
     /// The hash of a downloaded file did not match
     #[error("Wrong hash! Expected {} got {}", .0.expected, .0.was)]

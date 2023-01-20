@@ -71,7 +71,7 @@ impl InnerDownloader {
     /// Write these contents to disk
     ///
     /// # Panics
-    /// if this CheckedVec does not match the Downloadable
+    /// if this [`HashedVec`] does not match the [`Downloadable`]
     fn write_to_file_prechecked(
         &self,
         ctx: &mut DowloadContext,

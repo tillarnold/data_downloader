@@ -86,7 +86,7 @@ impl DownloaderBuilder {
         self
     }
 
-    /// Set the reqwest [`ClientBuilder`]
+    /// Set the `reqwest` [`ClientBuilder`]
     ///
     /// This allows you to configure everything about the [`reqwest::Client`]
     /// that will be used internally by the [`Downloader`]. Note that

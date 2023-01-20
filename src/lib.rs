@@ -108,10 +108,7 @@
 //!   implemented.
 //! - Only one URL is used per [`DownloadRequest`], it's not currently possible
 //!   to specify multiple possible locations for a file.
-//! - Only single files are supported, no unpacking of archives is supported.
 //! - The crate uses blocking IO. As such there is no currently no WASM support.
-//! - If a file on disk is corrupted or changed in another way it will not be
-//!   automatically redownloaded.
 //!
 //! Contributions to improve this are welcome.
 //!
@@ -321,7 +318,7 @@ fn download(client: &Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
 ///
 /// This is equivalent to calling [`Downloader::get`] on the default
 /// [`Downloader`]
-pub fn get(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
+pub fn get<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get(r)
 }
 
@@ -330,7 +327,7 @@ pub fn get(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 ///
 /// This is equivalent to calling [`Downloader::get_cached`] on the default
 /// [`Downloader`]
-pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
+pub fn get_cached<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get_cached(r)
 }
 
@@ -339,7 +336,7 @@ pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 ///
 /// This is equivalent to calling [`Downloader::get_path`] on the default
 /// [`Downloader`]
-pub fn get_path(r: &DownloadRequest) -> Result<PathBuf, Error> {
+pub fn get_path<'a>(r: impl Into<Downloadable<'a>>) -> Result<PathBuf, Error> {
     Downloader::new()?.get_path(r)
 }
 
@@ -373,9 +370,9 @@ pub enum Error {
 #[derive(Debug)]
 pub struct HashMismatch {
     /// The hash that was expected
-    expected: String,
+    pub expected: String,
     /// The hash that the actual file had
-    was: String,
+    pub was: String,
 }
 
 // For testing the readme

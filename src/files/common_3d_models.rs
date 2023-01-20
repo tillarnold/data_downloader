@@ -1,4 +1,4 @@
-//! 3d models
+//! 3D models
 
 use crate::DownloadRequest;
 

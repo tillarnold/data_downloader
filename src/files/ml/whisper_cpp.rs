@@ -2,7 +2,7 @@
 
 use crate::DownloadRequest;
 
-/// approx. 390MB
+/// approx. 390 MB
 pub const GGML_TINY: &DownloadRequest = &DownloadRequest {
     name: "ggml-tiny.bin",
     sha256_hash: &hex_literal::hex!(
@@ -11,7 +11,7 @@ pub const GGML_TINY: &DownloadRequest = &DownloadRequest {
     url: "https://huggingface.co/datasets/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
 };
 
-/// approx. 390MB
+/// approx. 390 MB
 pub const GGML_TINY_EN: &DownloadRequest = &DownloadRequest {
     name: "ggml-tiny.en.bin",
     sha256_hash: &hex_literal::hex!(
@@ -20,7 +20,7 @@ pub const GGML_TINY_EN: &DownloadRequest = &DownloadRequest {
     url: "https://huggingface.co/datasets/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
 };
 
-/// approx. 500MB
+/// approx. 500 MB
 pub const GGML_BASE: &DownloadRequest = &DownloadRequest {
     name: "ggml-base.bin",
     sha256_hash: &hex_literal::hex!(
@@ -29,7 +29,7 @@ pub const GGML_BASE: &DownloadRequest = &DownloadRequest {
     url: "https://huggingface.co/datasets/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
 };
 
-/// approx. 500MB
+/// approx. 500 MB
 pub const GGML_BASE_EN: &DownloadRequest = &DownloadRequest {
     name: "ggml-base.en.bin",
     sha256_hash: &hex_literal::hex!(
@@ -38,7 +38,7 @@ pub const GGML_BASE_EN: &DownloadRequest = &DownloadRequest {
     url: "https://huggingface.co/datasets/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
 };
 
-/// approx. 1GB
+/// approx. 1 GB
 pub const GGML_SMALL_EN: &DownloadRequest = &DownloadRequest {
     name: "ggml-small.en.bin",
     sha256_hash: &hex_literal::hex!(
@@ -47,7 +47,7 @@ pub const GGML_SMALL_EN: &DownloadRequest = &DownloadRequest {
     url: "https://huggingface.co/datasets/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
 };
 
-/// approx. 1GB
+/// approx. 1 GB
 pub const GGML_SMALL: &DownloadRequest = &DownloadRequest {
     name: "ggml-small.bin",
     sha256_hash: &hex_literal::hex!(
@@ -56,7 +56,7 @@ pub const GGML_SMALL: &DownloadRequest = &DownloadRequest {
     url: "https://huggingface.co/datasets/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
 };
 
-/// approx. 4.7GB
+/// approx. 4.7 GB
 pub const GGML_LARGE: &DownloadRequest = &DownloadRequest {
     name: "ggml-large.bin",
     sha256_hash: &hex_literal::hex!(

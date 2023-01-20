@@ -7,7 +7,7 @@ use std::{fs, io};
 
 use reqwest::blocking::Client;
 
-use crate::checked::CheckedVec;
+use crate::hashed::HashedVec;
 use crate::utils::{hex_str, sha256};
 use crate::{utils, Downloadable, DownloaderBuilder, Error, HashMismatch};
 
@@ -43,7 +43,7 @@ impl InnerDownloader {
         &self,
         mut ctx: DowloadContext,
         r: &impl Downloadable,
-    ) -> Result<(PathBuf, Option<CheckedVec>), Error> {
+    ) -> Result<(PathBuf, Option<HashedVec>), Error> {
         if ctx.path.exists() {
             Ok((ctx.path, None))
         } else {
@@ -76,7 +76,7 @@ impl InnerDownloader {
         &self,
         ctx: &mut DowloadContext,
         r: &impl Downloadable,
-        contents: &CheckedVec,
+        contents: &HashedVec,
     ) -> Result<(), io::Error> {
         assert_eq!(contents.sha256(), r.sha256());
 
@@ -90,7 +90,7 @@ impl InnerDownloader {
     }
 
     /// Write these contents to disk
-    /// Errors if sha doesn't match
+    /// Errors if SHA-256 doesn't match
     fn write_to_file(
         &self,
         ctx: &mut DowloadContext,
@@ -118,7 +118,7 @@ impl InnerDownloader {
         &self,
         ctx: &mut DowloadContext,
         r: &impl Downloadable,
-    ) -> Result<CheckedVec, Error> {
+    ) -> Result<HashedVec, Error> {
         let contents = r.procure(crate::HiddenInner(self, ctx))?;
 
         self.write_to_file_prechecked(ctx, r, &contents)?;
@@ -127,11 +127,7 @@ impl InnerDownloader {
         Ok(contents)
     }
 
-    pub fn get(
-        &self,
-        ctx: &mut DowloadContext,
-        r: &impl Downloadable,
-    ) -> Result<CheckedVec, Error> {
+    pub fn get(&self, ctx: &mut DowloadContext, r: &impl Downloadable) -> Result<HashedVec, Error> {
         if ctx.path.exists() {
             match self.get_cached(ctx, r) {
                 Err(Error::OnDiskHashMismatch { .. }) => self.procure_and_write(ctx, r),
@@ -146,12 +142,12 @@ impl InnerDownloader {
         &self,
         ctx: &DowloadContext,
         r: &impl Downloadable,
-    ) -> Result<CheckedVec, Error> {
+    ) -> Result<HashedVec, Error> {
         let mut res = vec![];
         let mut file = File::open(&ctx.path)?;
         file.read_to_end(&mut res)?;
 
-        match CheckedVec::try_new(res, r.sha256()) {
+        match HashedVec::try_new(res, r.sha256()) {
             Ok(vec) => {
                 debug_assert_eq!(r.sha256(), vec.sha256());
                 Ok(vec)
@@ -177,8 +173,9 @@ pub struct Downloader {
 
 impl Downloader {
     /// Create a [`Downloader`] that saves to the default storage directory
-    /// The default storage directory is in the platform specific cache dir or
-    /// if that is not available the temporary directory is used.
+    /// The default storage directory is in the platform specific cache
+    /// directory or if that is not available the temporary directory is
+    /// used.
     ///
     /// Note that no guarantees about the permissions of the default storage
     /// directory are made. It is possible that this directory is accessible

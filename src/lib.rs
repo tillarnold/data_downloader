@@ -139,14 +139,15 @@
 use std::io::{self, Cursor};
 use std::path::PathBuf;
 
-use checked::CheckedVec;
 use downloader::{DowloadContext, InnerDownloader};
+use hashed::HashedVec;
 use reqwest::blocking::Client;
 use thiserror::Error;
 
 mod builder;
 mod downloader;
 pub mod files;
+mod hashed;
 mod utils;
 
 pub use builder::DownloaderBuilder;
@@ -199,7 +200,7 @@ pub trait Downloadable: sealed::DownloadableSealed {
     #[doc(hidden)]
     /// Somehow obtain the data
     /// For example by downloading or by unpacking.
-    fn procure(&self, downloader: HiddenInner) -> Result<CheckedVec, Error>;
+    fn procure(&self, downloader: HiddenInner) -> Result<HashedVec, Error>;
 }
 
 mod sealed {
@@ -209,47 +210,6 @@ mod sealed {
 
     impl DownloadableSealed for DownloadRequest<'_> {}
     impl DownloadableSealed for InZipDownloadRequest<'_> {}
-}
-
-mod checked {
-
-    use crate::utils::sha256;
-
-    #[derive(Debug)]
-    pub struct CheckedVec {
-        data: Vec<u8>,
-        sha256: [u8; 32],
-    }
-
-    #[derive(Debug)]
-    pub struct CheckedVecErr {
-        pub data: Vec<u8>,
-        pub got: [u8; 32],
-    }
-
-    impl CheckedVec {
-        pub fn try_new(data: Vec<u8>, expected: &[u8]) -> Result<Self, CheckedVecErr> {
-            let real = sha256(&data);
-
-            if expected == real {
-                Ok(Self { data, sha256: real })
-            } else {
-                Err(CheckedVecErr { data, got: real })
-            }
-        }
-
-        pub fn into_vec(self) -> Vec<u8> {
-            self.data
-        }
-
-        pub fn sha256(&self) -> &[u8] {
-            &self.sha256
-        }
-
-        pub fn as_slice(&self) -> &[u8] {
-            self.data.as_slice()
-        }
-    }
 }
 
 fn download(client: &Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
@@ -268,7 +228,7 @@ impl Downloadable for DownloadRequest<'_> {
         self.sha256_hash
     }
 
-    fn procure(&self, inner: HiddenInner) -> Result<CheckedVec, Error> {
+    fn procure(&self, inner: HiddenInner) -> Result<HashedVec, Error> {
         let downloader = inner.0;
 
         for i in 0..downloader.download_attempts.get() {
@@ -281,7 +241,7 @@ impl Downloadable for DownloadRequest<'_> {
             }
 
             let x = download(&downloader.client, self.url)
-                .map(|e| CheckedVec::try_new(e, self.sha256_hash));
+                .map(|e| HashedVec::try_new(e, self.sha256_hash));
 
             let is_last_iter = i == downloader.download_attempts.get() - 1;
 
@@ -322,7 +282,7 @@ impl Downloadable for InZipDownloadRequest<'_> {
         self.sha256_hash
     }
 
-    fn procure(&self, downloader: HiddenInner) -> Result<CheckedVec, Error> {
+    fn procure(&self, downloader: HiddenInner) -> Result<HashedVec, Error> {
         use std::io::Read;
 
         let downloader = downloader.0;
@@ -341,7 +301,7 @@ impl Downloadable for InZipDownloadRequest<'_> {
 
         fl.read_to_end(&mut res)?;
 
-        match CheckedVec::try_new(res, self.sha256()) {
+        match HashedVec::try_new(res, self.sha256()) {
             Ok(vec) => Ok(vec),
             Err(err) => {
                 return Err(Error::ZipContentsHashMismatch(HashMismatch {

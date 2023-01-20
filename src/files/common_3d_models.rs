@@ -1,10 +1,9 @@
-//! 3d models
+//! 3D models
 
 use crate::DownloadRequest;
 
 /// <https://en.wikipedia.org/wiki/Utah_teapot> obj
 pub const TEAPOT_OBJ: &DownloadRequest = &DownloadRequest {
-    name: "teapot.obj",
     sha256_hash: &hex_literal::hex!(
         "1B5396FEDD74B577E32CEF41146582C2F2E1A050D5B4915193C0AC1AD4187ED4"
     ),
@@ -13,7 +12,6 @@ pub const TEAPOT_OBJ: &DownloadRequest = &DownloadRequest {
 
 /// Blender Suzanne
 pub const SUZANNE_OBJ: &DownloadRequest = &DownloadRequest {
-    name: "suzanne.obj",
     sha256_hash: &hex_literal::hex!(
         "D8684326F9BD8CFC24D3D302C1042FA16F63D2E66E49ED56B413FA20BED271E6"
     ),

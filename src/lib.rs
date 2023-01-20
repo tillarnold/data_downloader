@@ -224,7 +224,7 @@ impl InnerDownloadable<'_> {
                 // TODO we read the entire file because we use get. It's probably ok not to
                 // verify the sha of the zip because we verify the sha of the inner file.
                 // assuming that we don't suffer from some malicous ZIP attack making the extact
-                // take forever also this will do a lot of retires.
+                // take forever
 
                 let zip_bytes = downloader.get(
                     &mut downloader.make_context(&zr.parent.into())?,

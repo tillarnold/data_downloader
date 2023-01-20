@@ -22,7 +22,7 @@ pub(crate) struct InnerDownloader {
     /// Total number of attempts made to download a file. This is NonZero as it
     /// makes no sense to do 0 download attempts
     pub(super) download_attempts: NonZeroU64,
-    /// How long to wait inbetween attempts do download a file
+    /// How long to wait in between attempts do download a file
     pub(super) failed_download_wait_time: Duration,
     /// The HTTP Client that's used for all requests
     pub(super) client: Client,
@@ -55,21 +55,10 @@ impl InnerDownloader {
         Ok(DowloadContext { path })
     }
 
-    fn tmp_file_for(
-        &self,
-        ctx: &mut DowloadContext,
-        r: &InnerDownloadable,
-    ) -> io::Result<(File, PathBuf)> {
-        utils::create_file_at(
-            ctx.path.parent().expect("target path is a file in a dir"),
-            &format!("download_{}", hex_str(r.sha256())),
-        )
-    }
-
     /// Write these contents to disk
     ///
     /// # Panics
-    /// if this [`HashedVec`] does not match the [`Downloadable`]
+    /// If this [`HashedVec`] does not match the [`Downloadable`].
     fn write_to_file_prechecked(
         &self,
         ctx: &mut DowloadContext,
@@ -78,9 +67,21 @@ impl InnerDownloader {
     ) -> Result<(), io::Error> {
         assert_eq!(contents.sha256(), r.sha256());
 
-        let (mut tmp_file, tmp_file_path) = self.tmp_file_for(ctx, r)?;
+        self.write_to_file_unchecked(ctx, r, contents.as_slice())
+    }
 
-        tmp_file.write_all(contents.as_slice())?;
+    fn write_to_file_unchecked(
+        &self,
+        ctx: &DowloadContext,
+        r: &InnerDownloadable,
+        contents: &[u8],
+    ) -> Result<(), io::Error> {
+        let (mut tmp_file, tmp_file_path) = utils::create_file_at(
+            ctx.path.parent().expect("target path is a file in a dir"),
+            &format!("download_{}", hex_str(r.sha256())),
+        )?;
+
+        tmp_file.write_all(contents)?;
 
         fs::rename(tmp_file_path, &ctx.path)?;
 
@@ -91,7 +92,7 @@ impl InnerDownloader {
     /// Errors if SHA-256 doesn't match
     fn write_to_file(
         &self,
-        ctx: &mut DowloadContext,
+        ctx: &DowloadContext,
         r: &InnerDownloadable,
         contents: &[u8],
     ) -> Result<(), Error> {
@@ -103,13 +104,7 @@ impl InnerDownloader {
             }));
         }
 
-        let (mut tmp_file, tmp_file_path) = self.tmp_file_for(ctx, r)?;
-
-        tmp_file.write_all(contents)?;
-
-        fs::rename(tmp_file_path, &ctx.path)?;
-
-        Ok(())
+        Ok(self.write_to_file_unchecked(ctx, r, contents)?)
     }
 
     fn procure_and_write(
@@ -210,10 +205,9 @@ impl Downloader {
     /// wrong
     pub fn set<'a>(&self, r: impl Into<Downloadable<'a>>, data: &[u8]) -> Result<(), Error> {
         let r = &r.into().0;
+        let ctx = self.inner.make_context(r)?;
 
-        let mut ctx = self.inner.make_context(r)?;
-
-        self.inner.write_to_file(&mut ctx, r, data)
+        self.inner.write_to_file(&ctx, r, data)
     }
 
     /// Computes the full path to the file and if the file has not yet been

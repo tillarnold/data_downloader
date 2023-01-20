@@ -1,6 +1,6 @@
 use crate::utils::sha256;
 
-/// Internally used wraper for a [`Vec`] that also keeps track of the SHA-256
+/// Internally used wrapper for a [`Vec`] that also keeps track of the SHA-256
 /// sum of the data
 #[derive(Debug)]
 pub struct HashedVec {

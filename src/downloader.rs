@@ -120,7 +120,11 @@ impl InnerDownloader {
         Ok(contents)
     }
 
-    pub fn get(&self, ctx: &mut DowloadContext, r: &InnerDownloadable) -> Result<HashedVec, Error> {
+    pub(crate) fn get(
+        &self,
+        ctx: &mut DowloadContext,
+        r: &InnerDownloadable,
+    ) -> Result<HashedVec, Error> {
         if ctx.path.exists() {
             match self.get_cached(ctx, r) {
                 Err(Error::OnDiskHashMismatch { .. }) => self.procure_and_write(ctx, r),
@@ -131,7 +135,7 @@ impl InnerDownloader {
         }
     }
 
-    pub fn get_cached(
+    pub(crate) fn get_cached(
         &self,
         ctx: &DowloadContext,
         r: &InnerDownloadable,

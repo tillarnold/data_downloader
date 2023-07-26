@@ -13,13 +13,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         rust: [stable, beta, 1.65.0]
+        features: ["","--feature zip"]
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-      - run: cargo build --verbose
-      - run: cargo test --verbose
+      - run: cargo build --verbose ${{ matrix.features }}
+      - run: cargo test --verbose ${{ matrix.features }}
 
   fmt:
     name: Format, Docs, Lints 

@@ -143,7 +143,7 @@
 //!       low priority, especially while the [`enum@crate::Error`] type is still
 //!       changing frequently.
 
-use std::io::{self, Cursor};
+use std::io::{self};
 use std::path::PathBuf;
 
 use downloader::{DowloadContext, InnerDownloader};
@@ -160,7 +160,6 @@ mod utils;
 pub use builder::DownloaderBuilder;
 pub use downloader::Downloader;
 use utils::hex_str;
-use zip::ZipArchive;
 
 /// A file to be downloaded
 #[derive(Debug)]
@@ -172,6 +171,7 @@ pub struct DownloadRequest<'a> {
 }
 
 /// A file in a zip to be downloaded
+#[cfg(feature = "zip")]
 #[derive(Debug)]
 pub struct InZipDownloadRequest<'a> {
     /// Path inside the zip
@@ -192,6 +192,7 @@ impl<'a> From<&'a DownloadRequest<'_>> for Downloadable<'a> {
     }
 }
 
+#[cfg(feature = "zip")]
 impl<'a> From<&'a InZipDownloadRequest<'_>> for Downloadable<'a> {
     fn from(value: &'a InZipDownloadRequest<'a>) -> Self {
         Downloadable(InnerDownloadable::Zip(value))
@@ -200,6 +201,7 @@ impl<'a> From<&'a InZipDownloadRequest<'_>> for Downloadable<'a> {
 
 #[derive(Debug)]
 pub(crate) enum InnerDownloadable<'a> {
+    #[cfg(feature = "zip")]
     Zip(&'a InZipDownloadRequest<'a>),
     File(&'a DownloadRequest<'a>),
 }
@@ -207,6 +209,7 @@ pub(crate) enum InnerDownloadable<'a> {
 impl InnerDownloadable<'_> {
     pub(crate) fn sha256(&self) -> &[u8] {
         match self {
+            #[cfg(feature = "zip")]
             InnerDownloadable::Zip(z) => z.sha256_hash,
             InnerDownloadable::File(f) => f.sha256_hash,
         }
@@ -218,8 +221,11 @@ impl InnerDownloadable<'_> {
         ctxt: &mut DowloadContext,
     ) -> Result<HashedVec, Error> {
         match self {
+            #[cfg(feature = "zip")]
             InnerDownloadable::Zip(zr) => {
-                use std::io::Read;
+                use std::io::{Cursor, Read};
+
+                use zip::ZipArchive;
 
                 // TODO we read the entire file because we use get. It's probably ok not to
                 // verify the sha of the zip because we verify the sha of the inner file.
@@ -299,7 +305,7 @@ impl<'a> From<&'a DownloadRequest<'_>> for InnerDownloadable<'a> {
         InnerDownloadable::File(value)
     }
 }
-
+#[cfg(feature = "zip")]
 impl<'a> From<&'a InZipDownloadRequest<'_>> for InnerDownloadable<'a> {
     fn from(value: &'a InZipDownloadRequest<'a>) -> Self {
         InnerDownloadable::Zip(value)
@@ -362,6 +368,7 @@ pub enum Error {
     #[error("Wrong hash for manually set data! Expected {} got {}", .0.expected, .0.was)]
     ManualHashMismatch(HashMismatch),
     /// An error caused by zip
+    #[cfg(feature = "zip")]
     #[error("ZipError {0}")]
     ZipError(#[from] zip::result::ZipError),
 }
@@ -381,7 +388,8 @@ pub struct HashMismatch {
 pub struct ReadmeDoctests;
 
 #[cfg(test)]
-mod test {
+#[cfg(feature = "zip")]
+mod zip_test {
     use hex_literal::hex;
 
     use crate::{DownloadRequest, Downloader, InZipDownloadRequest};

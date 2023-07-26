@@ -7,12 +7,13 @@ fmt:
 
 # Run the testcases
 test:
-    cargo test
+    cargo test --all-features
 
 # Run the linters
 lint:
     cargo check --all
     cargo fmt --all --check
+    cargo clippy --all-targets
     cargo clippy --all-features --all-targets
     cargo clippy --tests --all-features --all-targets
     cargo doc --no-deps --document-private-items --all-features

@@ -18,7 +18,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Define where to get the file from
     let rfc_link = &DownloadRequest {
         url: "https://www.rfc-editor.org/rfc/rfc2068.txt",
-        name: "rfc2068.txt",
         sha256_hash: &hex_literal::hex!(
             "D6C4E471389F2D309AB1F90881576542C742F95B115336A346447D052E0477CF"
         ),

@@ -5,9 +5,8 @@ use proptest::prelude::*;
 
 proptest!(
     #[test]
-    fn get_doesnt_crash(name: String, sha256_hash: Vec<u8>, url: String) {
+    fn get_doesnt_crash(sha256_hash: Vec<u8>, url: String) {
         let dr: &DownloadRequest = &DownloadRequest {
-            name: &name,
             sha256_hash: &sha256_hash,
             url: &url,
         };
@@ -17,9 +16,8 @@ proptest!(
     }
 
     #[test]
-    fn get_cached_doesnt_crash(name: String, sha256_hash: Vec<u8>, url: String) {
+    fn get_cached_doesnt_crash(sha256_hash: Vec<u8>, url: String) {
         let dr: &DownloadRequest = &DownloadRequest {
-            name: &name,
             sha256_hash: &sha256_hash,
             url: &url,
         };
@@ -29,9 +27,8 @@ proptest!(
     }
 
     #[test]
-    fn get_path_doesnt_crash(name: String, sha256_hash: Vec<u8>, url: String) {
+    fn get_path_doesnt_crash(sha256_hash: Vec<u8>, url: String) {
         let dr: &DownloadRequest = &DownloadRequest {
-            name: &name,
             sha256_hash: &sha256_hash,
             url: &url,
         };
@@ -40,9 +37,8 @@ proptest!(
         let _error_ignored = dl.get_path(dr);
     }
 
-    fn get_doesnt_crash_with_retry(name: String, sha256_hash: Vec<u8>, url: String) {
+    fn get_doesnt_crash_with_retry(sha256_hash: Vec<u8>, url: String) {
         let dr: &DownloadRequest = &DownloadRequest {
-            name: &name,
             sha256_hash: &sha256_hash,
             url: &url,
         };
@@ -56,9 +52,8 @@ proptest!(
     }
 
     #[test]
-    fn get_cached_doesnt_crash_with_retry(name: String, sha256_hash: Vec<u8>, url: String) {
+    fn get_cached_doesnt_crash_with_retry(sha256_hash: Vec<u8>, url: String) {
         let dr: &DownloadRequest = &DownloadRequest {
-            name: &name,
             sha256_hash: &sha256_hash,
             url: &url,
         };
@@ -72,9 +67,8 @@ proptest!(
     }
 
     #[test]
-    fn get_path_doesnt_crash_with_retry(name: String, sha256_hash: Vec<u8>, url: String) {
+    fn get_path_doesnt_crash_with_retry(sha256_hash: Vec<u8>, url: String) {
         let dr: &DownloadRequest = &DownloadRequest {
-            name: &name,
             sha256_hash: &sha256_hash,
             url: &url,
         };
@@ -85,5 +79,19 @@ proptest!(
             .build()
             .unwrap();
         let _error_ignored = dl.get_path(dr);
+    }
+
+    #[test]
+    fn set_doesnt_crash(sha256_hash: Vec<u8>, url: String, data: Vec<u8>) {
+        let dr: &DownloadRequest = &DownloadRequest {
+            sha256_hash: &sha256_hash,
+            url: &url,
+        };
+
+        let dl = DownloaderBuilder::new().build().unwrap();
+        match dl.set(dr, &data) {
+            Err(data_downloader::Error::ManualHashMismatch { .. }) => { /* expected */ }
+            e => panic!("not expecting {e:?}"),
+        }
     }
 );

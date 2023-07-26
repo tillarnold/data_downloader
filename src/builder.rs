@@ -5,6 +5,7 @@ use std::{fs, io};
 
 use reqwest::blocking::ClientBuilder;
 
+use crate::downloader::InnerDownloader;
 use crate::{Downloader, Error};
 
 /// A builder for constructing a [`Downloader`]
@@ -76,7 +77,7 @@ impl DownloaderBuilder {
         self
     }
 
-    /// Set the timeout for http requests. By default there is no timeout
+    /// Set the timeout for HTTP requests. By default there is no timeout
     pub fn timeout<T>(mut self, timeout: T) -> Self
     where
         T: Into<Option<Duration>>,
@@ -85,7 +86,7 @@ impl DownloaderBuilder {
         self
     }
 
-    /// Set the reqwest [`ClientBuilder`]
+    /// Set the `reqwest` [`ClientBuilder`]
     ///
     /// This allows you to configure everything about the [`reqwest::Client`]
     /// that will be used internally by the [`Downloader`]. Note that
@@ -97,7 +98,7 @@ impl DownloaderBuilder {
         self
     }
 
-    /// Configure how oftent the [`Downloader`] should retry a download if it
+    /// Configure how often the [`Downloader`] should retry a download if it
     /// fails
     ///
     /// If set to zero only one request will be sent for each call to
@@ -118,8 +119,8 @@ impl DownloaderBuilder {
     ///
     /// # Errors
     /// Fails if the [`ClientBuilder`] fails to build or in the case that no
-    /// [`Self::storage_dir`] was set and the default storage dir could not be
-    /// created or accessed
+    /// [`Self::storage_dir`] was set and the default storage directory could
+    /// not be created or accessed
     pub fn build(self) -> Result<Downloader, Error> {
         let storage_dir = match self.storage_dir {
             Some(dir) => dir,
@@ -127,11 +128,13 @@ impl DownloaderBuilder {
         };
 
         Ok(Downloader {
-            storage_dir,
-            client: self.client.build()?,
-            download_attempts: NonZeroU64::new(u64::from(self.retry_attempts) + 1)
-                .expect("Cannot fail because 1 + u64 > 0"),
-            failed_download_wait_time: self.retry_wait_time,
+            inner: InnerDownloader {
+                storage_dir,
+                client: self.client.build()?,
+                download_attempts: NonZeroU64::new(u64::from(self.retry_attempts) + 1)
+                    .expect("Cannot fail because 1 + u64 > 0"),
+                failed_download_wait_time: self.retry_wait_time,
+            },
         })
     }
 }

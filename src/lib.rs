@@ -20,7 +20,6 @@
 //! // Define where to get the file from
 //! let rfc_link = &DownloadRequest {
 //!     url: "https://www.rfc-editor.org/rfc/rfc2068.txt",
-//!     name: "rfc2068.txt",
 //!     sha256_hash: &hex_literal::hex!(
 //!         "D6C4E471389F2D309AB1F90881576542C742F95B115336A346447D052E0477CF"
 //!     ),
@@ -73,21 +72,67 @@
 //! the download will never succeed because of the checksum mismatch, however
 //! the wrong file can be loaded from cache. For example here the above
 //! [`DownloadRequest`] was changed but only the `url` was adapted. Since
-//! neither the `name` nor `sha256_hash` are set to the correct value this will
+//! `sha256_hash` is not set to the correct value this will
 //! return `rfc2068.txt` from the cache. This is a user error, as the developer
 //! has to ensure that they specify the correct SHA-256 checksum for a
 //! [`DownloadRequest`].
 //!
 //! ```
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # use data_downloader::{get, get_cached, DownloadRequest};
-//! &DownloadRequest {
+//! let rfc7168 = &DownloadRequest {
 //!     url: "https://www.rfc-editor.org/rfc/rfc7168.txt",
-//!     name: "rfc2068.txt",
 //!     sha256_hash: &hex_literal::hex!(
 //!         "D6C4E471389F2D309AB1F90881576542C742F95B115336A346447D052E0477CF"
 //!     ),
 //! };
+//!
+//! let rfc2068 = &DownloadRequest {
+//!     url: "https://www.rfc-editor.org/rfc/rfc2068.txt",
+//!     sha256_hash: &hex_literal::hex!(
+//!         "D6C4E471389F2D309AB1F90881576542C742F95B115336A346447D052E0477CF"
+//!     ),
+//! };
+//!
+//! assert_eq!(get(rfc7168)?, get(rfc2068)?);
+//! # Ok(())
+//! # }
 //! ```
+//!
+//! # Zip Support
+//!
+//! When the `zip` feature of this crate is enabled the [`InZipDownloadRequest`]
+//! becomes available and can be used to download files contained in a zip file.
+//!
+//! ```
+//! # #[cfg(not(feature = "zip"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # Ok(())
+//! # }
+//! # #[cfg(feature = "zip")]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use data_downloader::{get, DownloadRequest, InZipDownloadRequest};
+//! let request = InZipDownloadRequest {
+//!     parent: &DownloadRequest {
+//!         url: "https://github.com/tillarnold/data_downloader/archive/refs/tags/v0.1.0.zip",
+//!         sha256_hash: &hex_literal::hex!(
+//!             "3A1929ABF26E7E03A93206D1D068B36C3F7182F304CF317FD71766113DDA5C4E"
+//!         ),
+//!     },
+//!     path: "data_downloader-0.1.0/src/files/ml/whisper_cpp.rs",
+//!     sha256_hash: &hex_literal::hex!(
+//!         "a6e18802876c198b9b99c33ce932890e57f01e0eab9ec19ac8ab2908025d1ae2"
+//!     ),
+//! };
+//! let result = get(&request).unwrap();
+//! let str = String::from_utf8(result).unwrap();
+//! println!("{}", str);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! This example downloads an old version of this crates source code from github
+//! as a zip file and extracts an individual source file from it.
 //!
 //! # Status of this crate
 //! This is an early release. As such breaking changes are expected at some
@@ -98,10 +143,7 @@
 //!   implemented.
 //! - Only one URL is used per [`DownloadRequest`], it's not currently possible
 //!   to specify multiple possible locations for a file.
-//! - Only single files are supported, no unpacking of archives is supported.
 //! - The crate uses blocking IO. As such there is no currently no WASM support.
-//! - If a file on disk is corrupted or changed in another way it will not be
-//!   automatically redownloaded.
 //!
 //! Contributions to improve this are welcome.
 //!
@@ -135,19 +177,25 @@
 //!       the code. This would potentially reduce build times. This has however
 //!       low priority, especially while the [`enum@crate::Error`] type is still
 //!       changing frequently.
+//! - `zip` to unzip zip files (only enabled with the `zip` feature)
 
-use std::io;
+use std::io::{self};
 use std::path::PathBuf;
 
+use downloader::{DowloadContext, InnerDownloader};
+use hashed::HashedVec;
+use reqwest::blocking::Client;
 use thiserror::Error;
 
 mod builder;
 mod downloader;
 pub mod files;
+mod hashed;
 mod utils;
 
 pub use builder::DownloaderBuilder;
 pub use downloader::Downloader;
+use utils::hex_str;
 
 /// A file to be downloaded
 #[derive(Debug)]
@@ -156,10 +204,155 @@ pub struct DownloadRequest<'a> {
     pub url: &'a str,
     /// Expected SHA-256 checksum
     pub sha256_hash: &'a [u8],
-    /// The name of the file.
-    /// If two files with the same SHA-256 but different names are
-    /// reqeuested this will result in two separate downloads
-    pub name: &'a str,
+}
+
+/// A file in a zip to be downloaded
+#[cfg(feature = "zip")]
+#[derive(Debug)]
+pub struct InZipDownloadRequest<'a> {
+    /// Path inside the zip
+    pub path: &'a str,
+    /// Expected SHA-256 checksum
+    pub sha256_hash: &'a [u8],
+    /// The zip this is in
+    pub parent: &'a DownloadRequest<'a>,
+}
+
+/// A thing that can be downloaded
+#[derive(Debug)]
+pub struct Downloadable<'a>(InnerDownloadable<'a>);
+
+impl<'a> From<&'a DownloadRequest<'_>> for Downloadable<'a> {
+    fn from(value: &'a DownloadRequest<'a>) -> Self {
+        Downloadable(InnerDownloadable::File(value))
+    }
+}
+
+#[cfg(feature = "zip")]
+impl<'a> From<&'a InZipDownloadRequest<'_>> for Downloadable<'a> {
+    fn from(value: &'a InZipDownloadRequest<'a>) -> Self {
+        Downloadable(InnerDownloadable::Zip(value))
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum InnerDownloadable<'a> {
+    #[cfg(feature = "zip")]
+    Zip(&'a InZipDownloadRequest<'a>),
+    File(&'a DownloadRequest<'a>),
+}
+
+impl InnerDownloadable<'_> {
+    pub(crate) fn sha256(&self) -> &[u8] {
+        match self {
+            #[cfg(feature = "zip")]
+            InnerDownloadable::Zip(z) => z.sha256_hash,
+            InnerDownloadable::File(f) => f.sha256_hash,
+        }
+    }
+
+    pub(crate) fn procure(
+        &self,
+        downloader: &InnerDownloader,
+        ctxt: &mut DowloadContext,
+    ) -> Result<HashedVec, Error> {
+        match self {
+            #[cfg(feature = "zip")]
+            InnerDownloadable::Zip(zr) => {
+                use std::io::{Cursor, Read};
+
+                use zip::ZipArchive;
+
+                // TODO we read the entire file because we use get. It's probably ok not to
+                // verify the sha of the zip because we verify the sha of the inner file.
+                // assuming that we don't suffer from some malicous ZIP attack making the extact
+                // take forever
+
+                let zip_bytes = downloader.get(
+                    &mut downloader.make_context(&zr.parent.into())?,
+                    &zr.parent.into(),
+                )?;
+                let mut buf = Cursor::new(zip_bytes.into_vec());
+                let mut archive = ZipArchive::new(&mut buf)?;
+
+                let mut fl = archive.by_name(zr.path)?;
+                let mut res = vec![]; //TOOD with expected capacyit
+
+                fl.read_to_end(&mut res)?;
+
+                match HashedVec::try_new(res, self.sha256()) {
+                    Ok(vec) => Ok(vec),
+                    Err(err) => {
+                        return Err(Error::ZipContentsHashMismatch(HashMismatch {
+                            expected: hex_str(self.sha256()),
+                            was: hex_str(&err.got),
+                        }))
+                    }
+                }
+            }
+            InnerDownloadable::File(sl) => {
+                for i in 0..downloader.download_attempts.get() {
+                    // We recheck here in case somebody else has donwloaded it by now
+                    if ctxt.path.exists() {
+                        match downloader.get_cached(ctxt, self) {
+                            Err(Error::OnDiskHashMismatch { .. }) => { /* ignore and do the download */
+                            }
+                            e => return e,
+                        }
+                    }
+
+                    let x = download(&downloader.client, sl.url)
+                        .map(|e| HashedVec::try_new(e, sl.sha256_hash));
+
+                    let is_last_iter = i == downloader.download_attempts.get() - 1;
+
+                    match x {
+                        Ok(Ok(res)) => return Ok(res),
+                        Ok(Err(hasherr)) => {
+                            if is_last_iter {
+                                return Err(Error::DownloadHashMismatch(HashMismatch {
+                                    expected: hex_str(sl.sha256_hash),
+                                    was: hex_str(&hasherr.got),
+                                }));
+                            }
+                        }
+                        Err(reqerr) => {
+                            //TODO: only retry here if the error is considered recoverable
+
+                            if is_last_iter {
+                                return Err(reqerr.into());
+                            }
+                        }
+                    }
+
+                    if !downloader.failed_download_wait_time.is_zero() {
+                        std::thread::sleep(downloader.failed_download_wait_time);
+                    }
+                }
+
+                unreachable!()
+            }
+        }
+    }
+}
+
+impl<'a> From<&'a DownloadRequest<'_>> for InnerDownloadable<'a> {
+    fn from(value: &'a DownloadRequest<'a>) -> Self {
+        InnerDownloadable::File(value)
+    }
+}
+#[cfg(feature = "zip")]
+impl<'a> From<&'a InZipDownloadRequest<'_>> for InnerDownloadable<'a> {
+    fn from(value: &'a InZipDownloadRequest<'a>) -> Self {
+        InnerDownloadable::Zip(value)
+    }
+}
+
+fn download(client: &Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
+    let response = client.get(url).send()?;
+    let bytes = response.bytes()?;
+
+    Ok(bytes.to_vec())
 }
 
 /// Get the file contents and if the file has not yet been downloaded, download
@@ -167,7 +360,7 @@ pub struct DownloadRequest<'a> {
 ///
 /// This is equivalent to calling [`Downloader::get`] on the default
 /// [`Downloader`]
-pub fn get(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
+pub fn get<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get(r)
 }
 
@@ -176,7 +369,7 @@ pub fn get(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 ///
 /// This is equivalent to calling [`Downloader::get_cached`] on the default
 /// [`Downloader`]
-pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
+pub fn get_cached<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get_cached(r)
 }
 
@@ -185,7 +378,7 @@ pub fn get_cached(r: &DownloadRequest) -> Result<Vec<u8>, Error> {
 ///
 /// This is equivalent to calling [`Downloader::get_path`] on the default
 /// [`Downloader`]
-pub fn get_path(r: &DownloadRequest) -> Result<PathBuf, Error> {
+pub fn get_path<'a>(r: impl Into<Downloadable<'a>>) -> Result<PathBuf, Error> {
     Downloader::new()?.get_path(r)
 }
 
@@ -196,27 +389,64 @@ pub enum Error {
     #[error("HTTP Request failed: {0}")]
     Reqwest(#[from] reqwest::Error),
     #[error("IO failed: {0}")]
-    /// An io Error
+    /// An IO Error
     Io(#[from] io::Error),
     /// The hash of a downloaded file did not match
-    #[error("Wrong hash! Expected {expected} got {was}")]
-    DownloadHashMismatch {
-        /// The hash that was expected
-        expected: String,
-        /// The hash that the actual file had
-        was: String,
-    },
+    #[error("Wrong hash! Expected {} got {}", .0.expected, .0.was)]
+    DownloadHashMismatch(HashMismatch),
     /// The hash of a file from the on disk cache did not match
-    #[error("Wrong hash on disk! Expected {expected} got {was}")]
-    OnDiskHashMismatch {
-        /// The hash that was expected
-        expected: String,
-        /// The hash that the actual file had
-        was: String,
-    },
+    #[error("Wrong hash on disk! Expected {} got {}", .0.expected, .0.was)]
+    OnDiskHashMismatch(HashMismatch),
+    /// The hash of a file extracted from a zip
+    #[error("Wrong hash from a file in a zip! Expected {} got {}", .0.expected, .0.was)]
+    ZipContentsHashMismatch(HashMismatch),
+    /// Data set by the user had the wrong hash
+    #[error("Wrong hash for manually set data! Expected {} got {}", .0.expected, .0.was)]
+    ManualHashMismatch(HashMismatch),
+    /// An error caused by zip
+    #[cfg(feature = "zip")]
+    #[error("ZipError {0}")]
+    ZipError(#[from] zip::result::ZipError),
+}
+
+/// A hash was not as expected
+#[derive(Debug)]
+pub struct HashMismatch {
+    /// The hash that was expected
+    pub expected: String,
+    /// The hash that the actual file had
+    pub was: String,
 }
 
 // For testing the readme
 #[doc = include_str!("../README.md")]
 #[cfg(doctest)]
 pub struct ReadmeDoctests;
+
+#[cfg(test)]
+#[cfg(feature = "zip")]
+mod zip_test {
+    use hex_literal::hex;
+
+    use crate::{DownloadRequest, Downloader, InZipDownloadRequest};
+
+    #[test]
+    fn zip_test() {
+        let z = InZipDownloadRequest {
+            parent: &DownloadRequest {
+                url: "https://github.com/tillarnold/data_downloader/archive/refs/tags/v0.1.0.zip",
+                sha256_hash: &hex!(
+                    "3A1929ABF26E7E03A93206D1D068B36C3F7182F304CF317FD71766113DDA5C4E"
+                ),
+            },
+            path: "data_downloader-0.1.0/src/files/ml/whisper_cpp.rs",
+            sha256_hash: &hex!("a6e18802876c198b9b99c33ce932890e57f01e0eab9ec19ac8ab2908025d1ae2"),
+        };
+
+        let dl = Downloader::builder().retry_attempts(0).build().unwrap();
+
+        let res = dl.get(&z).unwrap();
+        let str = String::from_utf8(res).unwrap();
+        println!("{}", str);
+    }
+}

@@ -99,6 +99,41 @@
 //! # }
 //! ```
 //!
+//! # Zip Support
+//!
+//! When the `zip` feature of this crate is enabled the [`InZipDownloadRequest`] becomes available
+//! and can be used to download files contained in a zip file.
+//! 
+//! ```
+//! # #[cfg(not(feature = "zip"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # Ok(())
+//! # }
+//! # #[cfg(feature = "zip")]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use data_downloader::{get, DownloadRequest, InZipDownloadRequest};
+//! let request = InZipDownloadRequest {
+//!     parent: &DownloadRequest {
+//!         url: "https://github.com/tillarnold/data_downloader/archive/refs/tags/v0.1.0.zip",
+//!         sha256_hash: &hex_literal::hex!(
+//!             "3A1929ABF26E7E03A93206D1D068B36C3F7182F304CF317FD71766113DDA5C4E"
+//!         ),
+//!     },
+//!     path: "data_downloader-0.1.0/src/files/ml/whisper_cpp.rs",
+//!     sha256_hash: &hex_literal::hex!(
+//!         "a6e18802876c198b9b99c33ce932890e57f01e0eab9ec19ac8ab2908025d1ae2"
+//!     ),
+//! };
+//! let result = get(&request).unwrap();
+//! let str = String::from_utf8(result).unwrap();
+//! println!("{}", str);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! This example downloads an old version of this crates source code from github as a zip
+//! file and extracts an individual source file from it.
+//!
 //! # Status of this crate
 //! This is an early release. As such breaking changes are expected at some
 //! point. There are also some implementation limitations including but not
@@ -142,6 +177,7 @@
 //!       the code. This would potentially reduce build times. This has however
 //!       low priority, especially while the [`enum@crate::Error`] type is still
 //!       changing frequently.
+//! - `zip` to unzip zip files (only enabled with the `zip` feature)
 
 use std::io::{self};
 use std::path::PathBuf;

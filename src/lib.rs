@@ -101,9 +101,9 @@
 //!
 //! # Zip Support
 //!
-//! When the `zip` feature of this crate is enabled the [`InZipDownloadRequest`] becomes available
-//! and can be used to download files contained in a zip file.
-//! 
+//! When the `zip` feature of this crate is enabled the [`InZipDownloadRequest`]
+//! becomes available and can be used to download files contained in a zip file.
+//!
 //! ```
 //! # #[cfg(not(feature = "zip"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -131,8 +131,8 @@
 //! # }
 //! ```
 //!
-//! This example downloads an old version of this crates source code from github as a zip
-//! file and extracts an individual source file from it.
+//! This example downloads an old version of this crates source code from github
+//! as a zip file and extracts an individual source file from it.
 //!
 //! # Status of this crate
 //! This is an early release. As such breaking changes are expected at some

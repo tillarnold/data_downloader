@@ -9,7 +9,9 @@ use reqwest::blocking::Client;
 
 use crate::hashed::HashedVec;
 use crate::utils::{hex_str, sha256};
-use crate::{utils, Downloadable, DownloaderBuilder, Error, HashMismatch, InnerDownloadable};
+use crate::{
+    utils, DownloadRequest, Downloadable, DownloaderBuilder, Error, HashMismatch, InnerDownloadable,
+};
 
 #[derive(Debug)]
 pub(crate) struct DowloadContext {
@@ -205,13 +207,53 @@ impl Downloader {
         Ok(self.inner.get_cached(&ctx, r)?.into_vec())
     }
 
+    /// Get the file contents and *fail* with an IO error if the file is not yet
+    /// downloaded
+    pub fn get_cached_by_hash(&self, hash: &[u8]) -> Result<Vec<u8>, Error> {
+        let dr = DownloadRequest {
+            url: "", // Since we are never downloading this the url doesn't matter
+            sha256_hash: hash,
+        };
+
+        self.get_cached(&dr)
+    }
+
     /// Insert this data for this [`Downloadable`]. Will error if the SHA-256 is
-    /// wrong
+    /// wrong.
+    ///
+    /// This is the same as calling [`Downloader::set_by_hash`] with the
+    /// sha256_hash ini the [`Downloadable`]
     pub fn set<'a>(&self, r: impl Into<Downloadable<'a>>, data: &[u8]) -> Result<(), Error> {
         let r = &r.into().0;
         let ctx = self.inner.make_context(r)?;
 
         self.inner.write_to_file(&ctx, r, data)
+    }
+
+    /// Insert this data for this [`Downloadable`]. Will error if the SHA-256 is
+    /// wrong.
+    ///
+    ///
+    /// ```
+    /// use data_downloader::{DownloadRequest, Downloader};
+    /// let test =
+    ///     &hex_literal::hex!("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
+    ///
+    /// let dl = Downloader::new().unwrap();
+    /// assert!(dl.set_by_hash(test, b"something else").is_err());
+    /// let data = b"test";
+    /// dl.set_by_hash(test, data).unwrap();
+    ///
+    /// let g = dl.get_cached_by_hash(test).unwrap();
+    /// assert_eq!(data, &g[..]);
+    /// ```
+    pub fn set_by_hash(&self, hash: &[u8], data: &[u8]) -> Result<(), Error> {
+        let dr = DownloadRequest {
+            url: "", // Since we are never downloading this the url doesn't matter
+            sha256_hash: hash,
+        };
+
+        self.set(&dr, data)
     }
 
     /// Computes the full path to the file and if the file has not yet been

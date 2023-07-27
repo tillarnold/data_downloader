@@ -222,7 +222,7 @@ impl Downloader {
     /// wrong.
     ///
     /// This is the same as calling [`Downloader::set_by_hash`] with the
-    /// sha256_hash ini the [`Downloadable`]
+    /// sha256_hash in the [`Downloadable`]
     pub fn set<'a>(&self, r: impl Into<Downloadable<'a>>, data: &[u8]) -> Result<(), Error> {
         let r = &r.into().0;
         let ctx = self.inner.make_context(r)?;
@@ -230,22 +230,25 @@ impl Downloader {
         self.inner.write_to_file(&ctx, r, data)
     }
 
-    /// Insert this data for this [`Downloadable`]. Will error if the SHA-256 is
+    /// Insert this data for this hash. Will error if the SHA-256 is
     /// wrong.
     ///
     ///
     /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use data_downloader::{DownloadRequest, Downloader};
     /// let test =
     ///     &hex_literal::hex!("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
     ///
-    /// let dl = Downloader::new().unwrap();
+    /// let dl = Downloader::new()?;
     /// assert!(dl.set_by_hash(test, b"something else").is_err());
     /// let data = b"test";
-    /// dl.set_by_hash(test, data).unwrap();
+    /// dl.set_by_hash(test, data)?;
     ///
-    /// let g = dl.get_cached_by_hash(test).unwrap();
+    /// let g = dl.get_cached_by_hash(test)?;
     /// assert_eq!(data, &g[..]);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn set_by_hash(&self, hash: &[u8], data: &[u8]) -> Result<(), Error> {
         let dr = DownloadRequest {
@@ -254,6 +257,26 @@ impl Downloader {
         };
 
         self.set(&dr, data)
+    }
+
+    /// Insert this data. Returns the hash.
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use data_downloader::{DownloadRequest, Downloader};
+    /// let dl = Downloader::new()?;
+    /// let hash = dl.insert(b"This is a test")?;
+    /// assert_eq!(
+    ///     hash,
+    ///     hex_literal::hex!("c7be1ed902fb8dd4d48997c6452f5d7e509fbcdbe2808b16bcf4edce4c07d14e")
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn insert(&self, data: &[u8]) -> Result<[u8; 32], Error> {
+        let hash = utils::sha256(data);
+        self.set_by_hash(&hash, data)?;
+        Ok(hash)
     }
 
     /// Computes the full path to the file and if the file has not yet been

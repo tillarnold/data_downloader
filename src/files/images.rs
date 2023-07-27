@@ -2,6 +2,8 @@
 
 use crate::DownloadRequest;
 
+pub mod flags;
+
 /// The peppers test image
 pub const PEPPERS_TIFF: &DownloadRequest = &DownloadRequest {
     sha256_hash: &hex_literal::hex!(

@@ -106,9 +106,7 @@
 //!
 //! ```
 //! # #[cfg(not(feature = "zip"))]
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # Ok(())
-//! # }
+//! # fn main() { }
 //! # #[cfg(feature = "zip")]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # use data_downloader::{get, DownloadRequest, InZipDownloadRequest};
@@ -168,7 +166,7 @@
 //!     - Technically this dependency could be removed if we specified the
 //!       SHA-256 in the predefined [`DownloadRequest`] directly as `&[u8]`
 //!       slice literals. However the library is maintained by the `RustCrypto`
-//!       organization and as such can be regarded as trustworthy
+//!       organization and as such can be regarded as trustworthy.
 //! - `thiserror` to conveniently derive `Error`
 //!     - This library is also very widely used and maintained by David Tolnay ,
 //!       a highly regarded member of the Rust community. Once `data_downloader`
@@ -276,7 +274,7 @@ impl InnerDownloadable<'_> {
                 let mut archive = ZipArchive::new(&mut buf)?;
 
                 let mut fl = archive.by_name(zr.path)?;
-                let mut res = vec![]; //TOOD with expected capacyit
+                let mut res = vec![]; //TOOD with expected capacity
 
                 fl.read_to_end(&mut res)?;
 
@@ -359,7 +357,16 @@ fn download(client: &Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
 /// it.
 ///
 /// This is equivalent to calling [`Downloader::get`] on the default
-/// [`Downloader`]
+/// [`Downloader`].
+///
+/// ```
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use data_downloader::files::images::PEPPERS_TIFF;
+/// use data_downloader::get;
+/// let byes: Vec<u8> = get(PEPPERS_TIFF)?;
+/// # Ok(())
+/// # }
+/// ```
 pub fn get<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get(r)
 }

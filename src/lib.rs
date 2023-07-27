@@ -375,7 +375,7 @@ pub fn get<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
 /// downloaded
 ///
 /// This is equivalent to calling [`Downloader::get_cached`] on the default
-/// [`Downloader`]
+/// [`Downloader`].
 pub fn get_cached<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get_cached(r)
 }
@@ -384,7 +384,7 @@ pub fn get_cached<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> 
 /// downloaded, download it.
 ///
 /// This is equivalent to calling [`Downloader::get_path`] on the default
-/// [`Downloader`]
+/// [`Downloader`].
 pub fn get_path<'a>(r: impl Into<Downloadable<'a>>) -> Result<PathBuf, Error> {
     Downloader::new()?.get_path(r)
 }

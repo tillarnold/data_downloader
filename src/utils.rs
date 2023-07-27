@@ -52,6 +52,10 @@ pub fn create_file_at(dir: &Path, prefix: &str) -> io::Result<(File, PathBuf)> {
                 if e.kind() == ErrorKind::AlreadyExists {
                     continue;
                 }
+                if e.kind() == ErrorKind::NotFound {
+                    std::fs::create_dir_all(dir)?;
+                    continue;
+                }
 
                 return Err(e);
             }

@@ -18,6 +18,40 @@ pub(crate) struct DowloadContext {
     pub(crate) path: PathBuf,
 }
 
+impl DowloadContext {
+    fn new(r: &InnerDownloadable, storage_dir: PathBuf) -> Result<Self, Error> {
+        let path = Self::compute_path(r, storage_dir)?;
+        Ok(DowloadContext { path })
+    }
+
+    fn compute_path(r: &InnerDownloadable, mut target_path: PathBuf) -> io::Result<PathBuf> {
+        for part in r.sha256().chunks_exact(1).take(3) {
+            target_path.push(utils::hex_str(part));
+        }
+
+        target_path.push(hex_str(r.sha256()));
+
+        Ok(target_path)
+    }
+
+    /// Try to delete the folders in the context if they are empty
+    pub fn cleanup(&self, root: &PathBuf) {
+        let mut path = self.path.clone();
+        path.pop();
+
+        assert!(path.starts_with(root));
+
+        while &path != root {
+            match fs::remove_dir(&path) {
+                Ok(_) => {
+                    path.pop();
+                }
+                Err(_) => break,
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct InnerDownloader {
     pub(super) storage_dir: PathBuf,
@@ -31,13 +65,6 @@ pub(crate) struct InnerDownloader {
 }
 
 impl InnerDownloader {
-    pub(crate) fn compute_path(&self, r: &InnerDownloadable) -> io::Result<PathBuf> {
-        let mut target_path = self.storage_dir.clone();
-        target_path.push(hex_str(r.sha256()));
-
-        Ok(target_path)
-    }
-
     /// Get the path and return the data if we loaded it anyways
     pub(crate) fn get_path_with_optional_data(
         &self,
@@ -53,8 +80,7 @@ impl InnerDownloader {
     }
 
     pub(crate) fn make_context(&self, r: &InnerDownloadable) -> Result<DowloadContext, Error> {
-        let path = self.compute_path(r)?;
-        Ok(DowloadContext { path })
+        DowloadContext::new(r, self.storage_dir.clone())
     }
 
     /// Write these contents to disk
@@ -69,7 +95,9 @@ impl InnerDownloader {
     ) -> Result<(), io::Error> {
         assert_eq!(contents.sha256(), r.sha256());
 
-        self.write_to_file_unchecked(ctx, r, contents.as_slice())
+        let res = self.write_to_file_unchecked(ctx, r, contents.as_slice());
+        ctx.cleanup(&self.storage_dir);
+        res
     }
 
     fn write_to_file_unchecked(

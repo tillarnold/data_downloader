@@ -2071,6 +2071,5 @@ mod test {
         dl.get(flag_for_country_code("de").unwrap()).unwrap();
         dl.get(flag_for_country_code("us").unwrap()).unwrap();
         dl.get(flag_for_country_code("jp").unwrap()).unwrap();
-
     }
 }

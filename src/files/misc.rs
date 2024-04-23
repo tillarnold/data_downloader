@@ -23,7 +23,7 @@ pub const CARS93_CSV: &DownloadRequest = &DownloadRequest {
     sha256_hash: &hex_literal::hex!(
         "27fef6999ea0ba753e1ae292db98d3d0f1027bb915661fce60c22d5449d2e0ae"
     ),
-    url: "http://vincentarelbundock.github.io/Rdatasets/csv/MASS/Cars93.csv",
+    url: "https://raw.githubusercontent.com/vincentarelbundock/Rdatasets/e38552ac3cb40a532941b09d7332b03d19409919/csv/MASS/Cars93.csv",
 };
 
 /// The first PDF of the <https://shattered.io/> attack
@@ -42,6 +42,14 @@ pub const SHATTERED_PDF_2: &DownloadRequest = &DownloadRequest {
     url: "https://shattered.io/static/shattered-2.pdf",
 };
 
+/// EICAR test file <https://en.wikipedia.org/wiki/EICAR_test_file>
+pub const EICAR_TEST_FILE: &DownloadRequest = &DownloadRequest {
+    sha256_hash: &hex_literal::hex!(
+        "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+    ),
+    url: "https://raw.githubusercontent.com/fire1ce/eicar-standard-antivirus-test-files/5faa004bace9d6e3614bc206fe7e13a63e395aff/eicar-com.com",
+};
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -50,6 +58,7 @@ mod test {
     #[test]
     fn download_test() {
         get(CARS93_CSV).unwrap();
+        get(EICAR_TEST_FILE).unwrap();
     }
 
     #[test]

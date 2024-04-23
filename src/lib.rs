@@ -53,7 +53,7 @@
 //! verified. However for [`get_path`] the checksum is not verified because even
 //! if it was you would still be vulnerable to a [TOC/TOU vulnerability](https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use).
 //!
-//! The [`get`], [`get_cached`] and [`get_path`] function use a default
+//! The [`get`], [`get_cached`] and [`get_path`] functions use a default
 //! directory to cache the downloads, this allows multiple application to share
 //! their cached downloads. If you need more configurability you can use
 //! [`DownloaderBuilder`] and set the storage directory manually using
@@ -99,16 +99,15 @@
 //! # }
 //! ```
 //!
-//! # Zip Support
+//! # ZIP Support
 //!
 //! When the `zip` feature of this crate is enabled the [`InZipDownloadRequest`]
-//! becomes available and can be used to download files contained in a zip file.
+//! becomes available and can be used to download files contained in ZIP archive
+//! files.
 //!
 //! ```
 //! # #[cfg(not(feature = "zip"))]
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # Ok(())
-//! # }
+//! # fn main() { }
 //! # #[cfg(feature = "zip")]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # use data_downloader::{get, DownloadRequest, InZipDownloadRequest};
@@ -131,8 +130,8 @@
 //! # }
 //! ```
 //!
-//! This example downloads an old version of this crates source code from github
-//! as a zip file and extracts an individual source file from it.
+//! This example downloads an old version of this crate's source code from
+//! github as a ZIP file and extracts an individual source file from it.
 //!
 //! # Status of this crate
 //! This is an early release. As such breaking changes are expected at some
@@ -168,7 +167,7 @@
 //!     - Technically this dependency could be removed if we specified the
 //!       SHA-256 in the predefined [`DownloadRequest`] directly as `&[u8]`
 //!       slice literals. However the library is maintained by the `RustCrypto`
-//!       organization and as such can be regarded as trustworthy
+//!       organization and as such can be regarded as trustworthy.
 //! - `thiserror` to conveniently derive `Error`
 //!     - This library is also very widely used and maintained by David Tolnay ,
 //!       a highly regarded member of the Rust community. Once `data_downloader`
@@ -206,15 +205,15 @@ pub struct DownloadRequest<'a> {
     pub sha256_hash: &'a [u8],
 }
 
-/// A file in a zip to be downloaded
+/// A file inside a ZIP archive to be downloaded
 #[cfg(feature = "zip")]
 #[derive(Debug)]
 pub struct InZipDownloadRequest<'a> {
-    /// Path inside the zip
+    /// Path inside the ZIP
     pub path: &'a str,
     /// Expected SHA-256 checksum
     pub sha256_hash: &'a [u8],
-    /// The zip this is in
+    /// The ZIP this is in
     pub parent: &'a DownloadRequest<'a>,
 }
 
@@ -265,8 +264,8 @@ impl InnerDownloadable<'_> {
 
                 // TODO we read the entire file because we use get. It's probably ok not to
                 // verify the sha of the zip because we verify the sha of the inner file.
-                // assuming that we don't suffer from some malicous ZIP attack making the extact
-                // take forever
+                // Assuming that we don't suffer from some malicous ZIP attack making the
+                // extract take forever
 
                 let zip_bytes = downloader.get(
                     &mut downloader.make_context(&zr.parent.into())?,
@@ -276,7 +275,7 @@ impl InnerDownloadable<'_> {
                 let mut archive = ZipArchive::new(&mut buf)?;
 
                 let mut fl = archive.by_name(zr.path)?;
-                let mut res = vec![]; //TOOD with expected capacyit
+                let mut res = vec![]; //TODO: with expected capacity
 
                 fl.read_to_end(&mut res)?;
 
@@ -292,7 +291,7 @@ impl InnerDownloadable<'_> {
             }
             InnerDownloadable::File(sl) => {
                 for i in 0..downloader.download_attempts.get() {
-                    // We recheck here in case somebody else has donwloaded it by now
+                    // We recheck here in case somebody else has downloaded it by now
                     if ctxt.path.exists() {
                         match downloader.get_cached(ctxt, self) {
                             Err(Error::OnDiskHashMismatch { .. }) => { /* ignore and do the download */
@@ -317,7 +316,7 @@ impl InnerDownloadable<'_> {
                             }
                         }
                         Err(reqerr) => {
-                            //TODO: only retry here if the error is considered recoverable
+                            //TODO: Only retry here if the error is considered recoverable
 
                             if is_last_iter {
                                 return Err(reqerr.into());
@@ -359,7 +358,16 @@ fn download(client: &Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
 /// it.
 ///
 /// This is equivalent to calling [`Downloader::get`] on the default
-/// [`Downloader`]
+/// [`Downloader`].
+///
+/// ```
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use data_downloader::files::images::PEPPERS_TIFF;
+/// use data_downloader::get;
+/// let byes: Vec<u8> = get(PEPPERS_TIFF)?;
+/// # Ok(())
+/// # }
+/// ```
 pub fn get<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get(r)
 }
@@ -368,7 +376,7 @@ pub fn get<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
 /// downloaded
 ///
 /// This is equivalent to calling [`Downloader::get_cached`] on the default
-/// [`Downloader`]
+/// [`Downloader`].
 pub fn get_cached<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> {
     Downloader::new()?.get_cached(r)
 }
@@ -377,7 +385,7 @@ pub fn get_cached<'a>(r: impl Into<Downloadable<'a>>) -> Result<Vec<u8>, Error> 
 /// downloaded, download it.
 ///
 /// This is equivalent to calling [`Downloader::get_path`] on the default
-/// [`Downloader`]
+/// [`Downloader`].
 pub fn get_path<'a>(r: impl Into<Downloadable<'a>>) -> Result<PathBuf, Error> {
     Downloader::new()?.get_path(r)
 }

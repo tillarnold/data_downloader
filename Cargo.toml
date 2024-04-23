@@ -13,7 +13,7 @@ exclude = [
     "/rustfmt.toml",
     "/.github/*"
 ]
-rust-version = "1.61.0"
+rust-version = "1.70.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,11 +24,11 @@ zip = ["dep:zip"]
 [dependencies]
 dirs = "5.0.1"
 hex-literal = "0.4.1"
-reqwest = { version ="0.11.18", features = ["blocking"]}
-sha2 = "0.10.7"
-thiserror = "1.0.44"
-zip = {version = "0.6.6",  optional = true }
+reqwest = { version ="0.12.4", features = ["blocking"]}
+sha2 = "0.10.8"
+thiserror = "1.0.59"
+zip = {version = "1.1.1",  optional = true }
 
 
 [dev-dependencies]
-proptest = "1.2.0"
+proptest = "1.4.0"

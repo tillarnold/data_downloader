@@ -53,7 +53,7 @@
 //! verified. However for [`get_path`] the checksum is not verified because even
 //! if it was you would still be vulnerable to a [TOC/TOU vulnerability](https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use).
 //!
-//! The [`get`], [`get_cached`] and [`get_path`] function use a default
+//! The [`get`], [`get_cached`] and [`get_path`] functions use a default
 //! directory to cache the downloads, this allows multiple application to share
 //! their cached downloads. If you need more configurability you can use
 //! [`DownloaderBuilder`] and set the storage directory manually using
@@ -99,10 +99,11 @@
 //! # }
 //! ```
 //!
-//! # Zip Support
+//! # ZIP Support
 //!
 //! When the `zip` feature of this crate is enabled the [`InZipDownloadRequest`]
-//! becomes available and can be used to download files contained in a zip file.
+//! becomes available and can be used to download files contained in ZIP archive
+//! files.
 //!
 //! ```
 //! # #[cfg(not(feature = "zip"))]
@@ -129,8 +130,8 @@
 //! # }
 //! ```
 //!
-//! This example downloads an old version of this crates source code from github
-//! as a zip file and extracts an individual source file from it.
+//! This example downloads an old version of this crate's source code from
+//! github as a ZIP file and extracts an individual source file from it.
 //!
 //! # Status of this crate
 //! This is an early release. As such breaking changes are expected at some
@@ -204,15 +205,15 @@ pub struct DownloadRequest<'a> {
     pub sha256_hash: &'a [u8],
 }
 
-/// A file in a zip to be downloaded
+/// A file inside a ZIP archive to be downloaded
 #[cfg(feature = "zip")]
 #[derive(Debug)]
 pub struct InZipDownloadRequest<'a> {
-    /// Path inside the zip
+    /// Path inside the ZIP
     pub path: &'a str,
     /// Expected SHA-256 checksum
     pub sha256_hash: &'a [u8],
-    /// The zip this is in
+    /// The ZIP this is in
     pub parent: &'a DownloadRequest<'a>,
 }
 
@@ -263,8 +264,8 @@ impl InnerDownloadable<'_> {
 
                 // TODO we read the entire file because we use get. It's probably ok not to
                 // verify the sha of the zip because we verify the sha of the inner file.
-                // assuming that we don't suffer from some malicous ZIP attack making the extact
-                // take forever
+                // Assuming that we don't suffer from some malicous ZIP attack making the
+                // extract take forever
 
                 let zip_bytes = downloader.get(
                     &mut downloader.make_context(&zr.parent.into())?,
@@ -274,7 +275,7 @@ impl InnerDownloadable<'_> {
                 let mut archive = ZipArchive::new(&mut buf)?;
 
                 let mut fl = archive.by_name(zr.path)?;
-                let mut res = vec![]; //TOOD with expected capacity
+                let mut res = vec![]; //TODO: with expected capacity
 
                 fl.read_to_end(&mut res)?;
 
@@ -290,7 +291,7 @@ impl InnerDownloadable<'_> {
             }
             InnerDownloadable::File(sl) => {
                 for i in 0..downloader.download_attempts.get() {
-                    // We recheck here in case somebody else has donwloaded it by now
+                    // We recheck here in case somebody else has downloaded it by now
                     if ctxt.path.exists() {
                         match downloader.get_cached(ctxt, self) {
                             Err(Error::OnDiskHashMismatch { .. }) => { /* ignore and do the download */
@@ -315,7 +316,7 @@ impl InnerDownloadable<'_> {
                             }
                         }
                         Err(reqerr) => {
-                            //TODO: only retry here if the error is considered recoverable
+                            //TODO: Only retry here if the error is considered recoverable
 
                             if is_last_iter {
                                 return Err(reqerr.into());
